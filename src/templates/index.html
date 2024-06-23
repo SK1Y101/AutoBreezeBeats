@@ -86,17 +86,33 @@
       <div class="device-section">
         <h2>Devices list</h2>
         <ul>
-          <li class="connected"><span><< Device 1 >></span> - <span>00:11:22:33:44:55</span></li>
-          <li class="disconnected"><span><< Device 2 >></span> - <span>11:22:33:44:55:66</span></li>
-          <li class="disconnected"><span><< Device 3 >></span> - <span>22:33:44:55:66:77</span></li>
-          <li class="connected"><span><< Device 4 >></span> - <span>33:44:55:66:77:88</span></li>
-          <li class="disconnected"><span><< Device 5 >></span> - <span>44:55:66:77:88:99</span></li>
+          <li class="connected"><span><< Device 0 >></span> - <span>00:11:22:33:44:55</span></li>
+          <li class="disconnected"><span><< Device 1 >></span> - <span>11:22:33:44:55:66</span></li>
+          <li class="disconnected"><span><< Device 2 >></span> - <span>22:33:44:55:66:77</span></li>
+          <li class="connected"><span><< Device 3 >></span> - <span>33:44:55:66:77:88</span></li>
+          <li class="disconnected"><span><< Device 4 >></span> - <span>44:55:66:77:88:99</span></li>
         </ul>
       </div>
 
       <div class="search-section">
         <h2>Add to Queue</h2>
-        <input class="search">
+        <form action="/search_youtube" method="post">
+          <label for="query">Add by URL:</label>
+          <input type="text" name="query" required>
+          <button type="submit">Search</button>
+        </form>
+        <form action="/search_youtube" method="post">
+          <label for="query">Search Term:</label>
+          <input type="text" name="query" required>
+          <button type="submit">Search</button>
+        </form>
+        <div class="search-results">
+          <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 0 >></div>
+          <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 1 >></div>
+          <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 2 >></div>
+          <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 3 >></div>
+          <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 4 >></div>
+        </div>
       </div>
     </section>
 

@@ -125,7 +125,7 @@ section h2 {
 
 /* Video searching */
 .search-section {
-    width: 35%;
+    width: 65%;
     margin-left: 5%;
 }
 
@@ -165,7 +165,7 @@ section h2 {
 /* Bluetooth devices */
 
 .device-section {
-    width: 50%;
+    /* width: 35%; */
     margin-left: 5%;
 }
 
