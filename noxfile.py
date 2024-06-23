@@ -1,5 +1,7 @@
 import nox
 
+req_file = "requirements.txt"
+
 code_directories = ["src"]
 lint_directories = ["noxfile.py"] + code_directories
 format_directories = ["tests"] + lint_directories
@@ -47,20 +49,26 @@ def mypy(session: nox.session) -> None:
         mypy_directories.extend(["-p", directory])
 
     session.install("mypy")
-    session.install("-r", "requirements.txt")
+    session.install("-r", req_file)
     session.run("mypy", *mypy_directories, "--ignore-missing-imports")
 
 
 @nox.session
 def clean(session: nox.session) -> None:
     """Cleanup any created items."""
-    import shutil, os
+    import os
+    import shutil
 
     def delete(directory):
         shutil.rmtree(directory, ignore_errors=True)
-    
+
     def delete_file(file):
-        os.remove(file)
+        try:
+            os.remove(file)
+        except FileNotFoundError:
+            print(f"{file} doesn't seem to exist, skipping.")
+        except Exception as e:
+            print(f"Unknown error {e}")
 
     delete("src/__pycache__")
     delete("__pycache__")
@@ -75,7 +83,7 @@ def tests(session: nox.session) -> None:
     """Run the python test suite."""
     session.install("pytest")
     session.install("coverage")
-    session.install("-r", "requirements.txt")
+    session.install("-r", req_file)
     session.run(
         "coverage",
         "run",
