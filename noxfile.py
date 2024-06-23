@@ -73,6 +73,7 @@ def clean(session: nox.session) -> None:
     delete("src/__pycache__")
     delete("__pycache__")
     delete(".mypy_cache")
+    delete(".pytest_cache")
     delete(".nox")
 
     delete_file(".coverage")
