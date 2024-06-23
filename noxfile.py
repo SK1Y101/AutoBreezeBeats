@@ -1,14 +1,16 @@
 import nox
 
-directories = ["src"]
-lint_directories = ["noxfile.py"] + directories
+code_directories = ["src"]
+lint_directories = ["noxfile.py"] + code_directories
 format_directories = ["tests"] + lint_directories
 
 
-@nox.session
+@nox.session(tags=["run"])
 def run(session: nox.session) -> None:
     session.install("-r", "requirements.txt")
-    session.run("uvicorn", "src.main:app", "--reload", external=True)
+    session.run(
+        "uvicorn", "src.main:app", "--reload", "--reload-dir", "src", external=True
+    )
 
 
 @nox.session(tags=["format", "lint"])
@@ -25,7 +27,7 @@ def isort(session: nox.session) -> None:
 
 @nox.session(tags=["lint"])
 def lint(session: nox.session) -> None:
-    """Lint all python files."""
+    """Lint all files."""
     session.install("flake8")
     session.run(
         "flake8",
@@ -33,7 +35,7 @@ def lint(session: nox.session) -> None:
         "--max-line-length",
         "88",
         "--extend-ignore",
-        "E203"
+        "E203",
     )
 
 
@@ -41,12 +43,31 @@ def lint(session: nox.session) -> None:
 def mypy(session: nox.session) -> None:
     """Check python files for type violations."""
     mypy_directories = []
-    for directory in directories:
+    for directory in code_directories:
         mypy_directories.extend(["-p", directory])
 
     session.install("mypy")
     session.install("-r", "requirements.txt")
     session.run("mypy", *mypy_directories, "--ignore-missing-imports")
+
+
+@nox.session
+def clean(session: nox.session) -> None:
+    """Cleanup any created items."""
+    import shutil, os
+
+    def delete(directory):
+        shutil.rmtree(directory, ignore_errors=True)
+    
+    def delete_file(file):
+        os.remove(file)
+
+    delete("src/__pycache__")
+    delete("__pycache__")
+    delete(".mypy_cache")
+    delete(".nox")
+
+    delete_file(".coverage")
 
 
 @nox.session(tags=["test"])

@@ -1,0 +1,7 @@
+*.pyo
+*.pyc
+.coverage
+
+.nox*
+.mypy*
+.pytest*
