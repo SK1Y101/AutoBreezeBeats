@@ -1,12 +1,105 @@
 <!doctype html>
-
 <html lang="en">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World!</title>
+    <title>{{ application.title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
-    <h1>Hello World!</h1>
+    <header>
+      <div class="title-bar">
+        <h1><a href="https://github.com/SK1Y101/AutoBreezeBeats">{{ application.title }}</a> v{{ application.version }}</h1>
+        <h1 ><div id="datetime">13:14:89</div><div id="weather">Cloudy</div></h1>
+        <h1>{{ host.name }} at {{ host.ip }}</h1>
+      </div>
+    </header>
+
+    <section class="main-content">
+      <div class="video-section">
+        <div id="current-video" >
+          <h2>Now playing: << Current Song >></h2>
+          <div style="height:720px; width:1280px; background-color:red;"></div>
+          <div class="playback-container">
+            <div class="timeline-bar">
+              <div class="progress-bar" id="progress" style="width:40%"></div>
+            </div>
+            <div class="controls">
+              <span class="control-buttons">
+                <div id="elapsed-time">0:40</div> / <div id="total-time">1:40</div>
+              </span>
+              <!-- ▶️⏩⏭️⏪⏸️ -->
+              <button class="control-button" id="skip-previous">⏪</button>
+              <button class="control-button center-button" id="play-pause">▶</button>
+              <button class="control-button" id="skip-next">⏩</button>
+              <button class="control-button" id="skip-full">⏭️</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="queue-section">
+        <h2>Up next: << Queue Position 1 >></h2>
+        <div style="height:360px; width:640px; background-color:red;"></div>
+        <hr>
+
+        <table>
+          <tr>
+            <td>
+              <div style="height:72px; width:128px; background-color:red;"></div>
+            </td>
+            <td>
+              << Queue Position 2 >>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="height:72px; width:128px; background-color:red;"></div>
+            </td>
+            <td>
+              << Queue Position 3 >>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="height:72px; width:128px; background-color:red;"></div>
+            </td>
+            <td>
+              << Queue Position 4 >>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="height:72px; width:128px; background-color:red;"></div>
+            </td>
+            <td>
+              << Queue Position 5 >>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </section>
+
+    <br>
+    <hr>
+
+    <section class="sub-content">
+      <div class="device-section">
+        <h2>Devices list</h2>
+        <ul>
+          <li class="connected"><span><< Device 1 >></span> - <span>00:11:22:33:44:55</span></li>
+          <li class="disconnected"><span><< Device 2 >></span> - <span>11:22:33:44:55:66</span></li>
+          <li class="disconnected"><span><< Device 3 >></span> - <span>22:33:44:55:66:77</span></li>
+          <li class="connected"><span><< Device 4 >></span> - <span>33:44:55:66:77:88</span></li>
+          <li class="disconnected"><span><< Device 5 >></span> - <span>44:55:66:77:88:99</span></li>
+        </ul>
+      </div>
+
+      <div class="search-section">
+        <h2>Add to Queue</h2>
+        <input class="search">
+      </div>
+    </section>
+
+    <script src="/static/script.js"></script>
   </body>
 </html>

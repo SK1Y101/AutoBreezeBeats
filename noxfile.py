@@ -54,17 +54,19 @@ def mypy(session: nox.session) -> None:
 @nox.session
 def clean(session: nox.session) -> None:
     """Cleanup any created items."""
-    import shutil, os
+    import os
+    import shutil
 
     def delete(directory):
         shutil.rmtree(directory, ignore_errors=True)
-    
+
     def delete_file(file):
         os.remove(file)
 
     delete("src/__pycache__")
     delete("__pycache__")
     delete(".mypy_cache")
+    delete(".pytest_cache")
     delete(".nox")
 
     delete_file(".coverage")
