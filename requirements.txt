@@ -1,2 +1,3 @@
+bleak
 fastapi
 uvicorn
