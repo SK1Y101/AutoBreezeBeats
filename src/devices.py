@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import asyncio
+import threading
 from dataclasses import dataclass
-from subprocess import CalledProcessError
-from typing import Any
+from logging import Logger, getLogger
+from math import ceil
+from time import sleep
+from typing import Any, Generator
 
-from bleak import BleakClient, BleakScanner
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from .common import load_data, run, save_data
+from .common import check_output, load_data, loggable, run, save_data
 
 
 class ConnectError(HTTPException):
@@ -22,8 +23,19 @@ class DisconnectError(HTTPException):
         super().__init__(status_code=500, detail=f"Failed to disconnect from {address}")
 
 
+class SinkError(HTTPException):
+    def __init__(self, address: str | None) -> None:
+        super().__init__(
+            status_code=500, detail=f"Failed to set sink to {address or "default"}"
+        )
+
+
 class DeviceAction(BaseModel):
     address: str
+
+
+class SinkAction(BaseModel):
+    address: str | None = None
 
 
 @dataclass
@@ -31,6 +43,7 @@ class Device:
     address: str
     name: str = "Unknown device"
     connected: bool = False
+    primary: bool = False
 
     @property
     def to_dict(self) -> dict[str, str | bool]:
@@ -38,118 +51,195 @@ class Device:
             "name": self.name,
             "address": self.address.lower(),
             "connected": self.connected,
+            "primary": self.primary,
         }
 
     @property
     def sink_address(self) -> str:
-        return self.address.replace(":", "_")
+        return self.address.replace(":", "_").replace(".", "_").lower()
+
+
+@dataclass
+class Sink:
+    id: int = -1
+    name: str = "Uninitialised Sink"
+    active: bool = False
 
     @property
-    def client(self) -> BleakClient:
-        return BleakClient(self.address)
-
-    async def connect(self) -> None:
-        await self.client.connect()
-        self.connected = True
-
-    async def disconnect(self) -> None:
-        await self.client.disconnect()
-        self.connected = False
+    def address(self) -> str:
+        return self.name.split(".")[1].lower().replace("_", ":")
 
 
-class DeviceManager:
-    def __init__(self) -> None:
-        self.devices: list[Device] = []
-        self.clients: dict[str, Device] = {}
+class DeviceManager(loggable):
+    def __init__(self, parent_logger: None | Logger) -> None:
+        self.logger = (
+            parent_logger.getChild("devices") if parent_logger else getLogger("devices")
+        )
         self.filename = "connected_devices.json"
-        self.load_devices()
 
-    async def scan_devices(self) -> None:
-        devices = await BleakScanner.discover()
-        self.devices = [
-            Device(name=device.name or "Unknown device", address=device.address)
-            for device in devices
-        ]
+        self.devices: list[Device] = []
+        self.load_devices()
+        self.sync_devices()
+
+        self.scanning_thread: None | threading.Thread = None
+        self.keep_scanning = False
+        self.scan_timeout: int = 5
+
+    @property
+    def clients(self) -> list[str]:
+        return [device.address for device in self.devices if device.connected]
 
     @property
     def list_devices(self) -> list[dict[str, Any]]:
         return [device.to_dict for device in self.devices]
 
-    def _find_device_(self, address: str) -> Device:
-        device = next(
-            (device for device in self.devices if device.address == address), None
-        )
-        if not device:
-            device = Device(address=address)
-            self.devices.append(device)
-        return device
+    def start_scanning(self, timeout: int = 5) -> None:
+        self.scan_timeout = timeout
+        if self.scanning_thread and self.scanning_thread.is_alive():
+            self.logger.warning("Scanning thread already active")
+            return
+        self.keep_scanning = True
+        self.scanning_thread = threading.Thread(target=self._scan_devices, daemon=True)
+        self.scanning_thread.start()
 
-    async def connect_device(self, address: str) -> bool:
-        device = self._find_device_(address=address)
+    def stop_scanning(self) -> None:
+        self.keep_scanning = False
+        if self.scanning_thread and self.scanning_thread.is_alive():
+            self.logger.info("Waiting for scanning thread shutdown")
+            self.scanning_thread.join()
 
-        await device.connect()
-        self.clients[address] = device
+    def _scan_devices(self) -> None:
+        try:
+            self.logger.info("Discovering bluetooth devices")
+            while self.keep_scanning:
+                run(["bluetoothctl", "--timeout", str(self.scan_timeout), "scan", "on"])
+                self.devices = self._found_devices()
+                # scan until the next 10 seconds have elapsed
+                sleep(10 * ceil(self.scan_timeout / 10))
+        except KeyboardInterrupt:
+            self.logger.info("Forcibly stopping device scanning")
+        except Exception as e:
+            self.logger.error(f"Error during device scan: {e}")
 
-        self.set_audio_sinks()
-        self.save_devices()
-        return device.connected is True
+    def _device_connected(self, address: str) -> bool:
+        with self.handle_error():
+            output = check_output(["bluetoothctl", "info", address])
+            return "Connected: yes" in output
+        return False
 
-    async def disconnect_device(self, address: str) -> bool:
-        device = self.clients.pop(address, None)
-        if device:
-            await device.client.disconnect()
-        else:
-            return False
+    def _found_devices(self) -> list[Device]:
+        with self.handle_error():
+            devices: list[Device] = []
+            found = check_output(["bluetoothctl", "devices"])
+            for line in found.splitlines():
+                if line.startswith("Device "):
+                    parts = line.split()
+                    address = parts[1]
+                    name = " ".join(parts[2:])
+                    connected = self._device_connected(address)
+                    device = Device(address=address, name=name, connected=connected)
+                    device.primary = (
+                        sink.active
+                        if (sink := self._sink_info_(device.address))
+                        else False
+                    )
+                    devices.append(device)
+            return devices
+        return []
 
-        self.set_audio_sinks()
-        self.save_devices()
-        return device.connected is False
-
-    def set_audio_sinks(self) -> None:
-        for device in self.clients.values():
-            try:
-                sink_name = f"bluez_sink.{device.sink_address}.a2dp_sink"
-                run(["pactl", "set-default-sink", sink_name])
-                # run(["pactl", "move-sink-input", "0", sink_name])
-                device.connected = True
-            except CalledProcessError as e:
-                print(f"Failed to set audio sink to {device.address}: {e}")
-
-    async def sync_devices(self) -> None:
-        """Ensure the connected devices match what we think is connected."""
+    def _device_(self, address: str) -> Device:
         for device in self.devices:
-            if device.address in self.clients.keys():
-                device.connected = True
-            if device.connected:
-                await device.connect()
-                self.clients[device.address] = device
+            if device.address.lower() == address.lower():
+                return device
+        raise Exception(f"Could not find device {address}")
+
+    def connect_device(self, address: str) -> bool:
+        self.logger.info(f"Request connect {address}")
+        with self.handle_error(f"Failed to connect to device {address}"):
+            run(["bluetoothctl", "connect", address])
+            self._device_(address).connected = True
+            self.save_devices()
+            return True
+        return False
+
+    def disconnect_device(self, address: str) -> bool:
+        self.logger.info(f"Request disconnect {address}")
+        with self.handle_error(f"Failed to disconnect from {address}"):
+            run(["bluetoothctl", "disconnect", address])
+            self._device_(address).connected = True
+            self.save_devices()
+            return True
+        return False
+
+    @property
+    def _sinks_(self) -> Generator[Sink, None, None]:
+        with self.handle_error("Could not find pactl sinks"):
+            output = check_output(["pactl", "list", "short", "sinks"])
+            for line in output.splitlines():
+                idx, name, _, _, active = line.split("\t")
+                yield Sink(
+                    id=int(idx),
+                    name=name,
+                    active=active.lower() != "suspended",
+                )
+
+    def _sink_info_(self, address: str) -> Sink | None:
+        for sink in self._sinks_:
+            if sink.address == address:
+                return sink
+        self.logger.debug(f"Sink with address '{address}' not found.")
+        return None
+
+    def set_sink(self, address: str) -> bool:
+        with self.handle_error(f"Could not set {address} as sink."):
+            device = self._device_(address=address)
+            if not device.connected:
+                self.connect_device(address)
+            if sink := self._sink_info_(device.address):
+                if not sink.active:
+                    run(["pactl", "set-default-sink", str(sink.id)])
+                device.primary = True
+                return True
+        return False
+
+    def unset_sinks(self) -> bool:
+        with self.handle_error("Could not unset"):
+            for device in self.devices:
+                device.primary = False
+            for sink in self._sinks_:
+                run(["pactl", "suspend-sink", str(sink.id), "1"])
             else:
-                await device.disconnect()
-                self.clients.pop(device.address, None)
+                return True
+        return False
+
+    def sync_devices(self) -> None:
+        clients = self.clients
+        for device in self.devices:
+            if device.address in clients:
+                device.connected = True
+
+            if device.connected:
+                self.connect_device(device.address)
+            else:
+                self.disconnect_device(device.address)
 
     def save_devices(self) -> None:
-        device_dict = {device.name: device.address for device in self.devices}
-        save_data(self.filename, device_dict)
+        self.logger.info("Saving device data")
+
+        data = {}
+        data["devices"] = {device.address: device.name for device in self.devices}
+
+        save_data(self.filename, data)
+        self.logger.info("Saving complete")
 
     def load_devices(self) -> None:
-        device_dict = load_data(self.filename)
-        self.devices = [
-            Device(name=name, address=address) for name, address in device_dict.items()
-        ]
+        self.logger.info("Loading device data")
 
-    async def periodic_scan(self, interval: int = 30) -> None:
-        while True:
-            await self.scan_devices()
-            await self.sync_devices()
-            await asyncio.sleep(interval)
+        if data := load_data(self.filename):
+            devices = data["devices"]
 
-
-device_manager = DeviceManager()
-
-
-async def start_periodic_scan() -> None:
-    await device_manager.periodic_scan()
-
-
-loop = asyncio.get_event_loop()
-loop.create_task(start_periodic_scan())
+            self.devices = [
+                Device(address=address, name=name, connected=False)
+                for address, name in devices.items()
+            ]
+            self.logger.info("Loading complete")
