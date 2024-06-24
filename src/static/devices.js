@@ -9,9 +9,7 @@ async function setSink() {
     })
     .then(response => {
         console.log(response);
-        if (response.ok) {
-            location.reload();
-        } else {
+        if (!response.ok) {
             console.error("Could not set sink")
         }
     })

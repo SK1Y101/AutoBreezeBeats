@@ -65,11 +65,6 @@ class Sink:
     name: str = "Uninitialised Sink"
     active: bool = False
 
-    @property
-    def address(self) -> str:
-        return self.name.split(".")[1].lower().replace("_", ":")
-
-
 class DeviceManager(loggable):
     def __init__(self, parent_logger: None | Logger) -> None:
         self.logger = (
@@ -177,29 +172,35 @@ class DeviceManager(loggable):
             output = check_output(["pactl", "list", "short", "sinks"])
             for line in output.splitlines():
                 idx, name, _, _, active = line.split("\t")
-                yield Sink(
+                sink = Sink(
                     id=int(idx),
                     name=name,
                     active=active.lower() != "suspended",
                 )
+                self.logger.info(f"Found sink {sink}")
+                yield sink
 
     def _sink_info_(self, address: str) -> Sink | None:
         for sink in self._sinks_:
-            if sink.address == address:
+            if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
         self.logger.debug(f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:
+        self.logger.info(f"Request to set sink to {address}")
         with self.handle_error(f"Could not set {address} as sink."):
             device = self._device_(address=address)
             if not device.connected:
+                self.logger.info(f"device {device} not connected")
                 self.connect_device(address)
             if sink := self._sink_info_(device.address):
-                if not sink.active:
-                    run(["pactl", "set-default-sink", str(sink.id)])
+                self.logger.info(f"Found sink {sink} for device {device}")
+                run(["pactl", "set-default-sink", str(sink.id)])
                 device.primary = True
                 return True
+            else:
+                self.logger.warning(f"Could not find sink for {device}")
         return False
 
     def unset_sinks(self) -> bool:
@@ -207,9 +208,10 @@ class DeviceManager(loggable):
             for device in self.devices:
                 device.primary = False
             for sink in self._sinks_:
+                self.logger.info(f"Suspending sink {sink}")
                 run(["pactl", "suspend-sink", str(sink.id), "1"])
-            else:
-                return True
+                sink.active = False
+            return True
         return False
 
     def sync_devices(self) -> None:
