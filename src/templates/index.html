@@ -85,18 +85,13 @@
     <section class="sub-content">
       <div class="device-section">
         <h2>Devices list</h2>
-        <ul>
-          <li class="connected"><span><< Device 0 >></span> - <span>00:11:22:33:44:55</span></li>
-          <li class="disconnected"><span><< Device 1 >></span> - <span>11:22:33:44:55:66</span></li>
-          <li class="disconnected"><span><< Device 2 >></span> - <span>22:33:44:55:66:77</span></li>
-          <li class="connected"><span><< Device 3 >></span> - <span>33:44:55:66:77:88</span></li>
-          <li class="disconnected"><span><< Device 4 >></span> - <span>44:55:66:77:88:99</span></li>
-        </ul>
+        <div id="device-list">
+        </div>
       </div>
 
       <div class="search-section">
         <h2>Add to Queue</h2>
-        <form action="/search_youtube" method="post">
+        <form action="/add_to_queue" method="post">
           <label for="query">Add by URL:</label>
           <input type="text" name="query" required>
           <button type="submit">Search</button>
@@ -117,5 +112,6 @@
     </section>
 
     <script src="/static/script.js"></script>
+    <script src="/static/devices.js"></script>
   </body>
 </html>
