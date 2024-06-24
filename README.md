@@ -14,10 +14,11 @@ Clone the project to a local area
 $ git clone https://github.com/SK1Y101/AutoBreezeBeats.git
 ```
 
-install nox
+install nox and pactl
 
 ```bash
 $ sudo apt install python3-nox
+$ sudo apt install pulseaudio pavucontrol
 ```
 
 and run the script
