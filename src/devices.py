@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass
 from logging import Logger, getLogger
@@ -38,6 +39,10 @@ class SinkAction(BaseModel):
     address: str | None = None
 
 
+def noramlise_address(address: str) -> str:
+    return re.sub(r"[\-\_\.]", ":", address.lower())
+
+
 @dataclass
 class Device:
     address: str
@@ -49,14 +54,14 @@ class Device:
     def to_dict(self) -> dict[str, str | bool]:
         return {
             "name": self.name,
-            "address": self.address.lower(),
+            "address": noramlise_address(self.address),
             "connected": self.connected,
             "primary": self.primary,
         }
 
     @property
     def sink_address(self) -> str:
-        return self.address.replace(":", "_").replace(".", "_").lower()
+        return noramlise_address(self.address).replace(":", "_")
 
 
 @dataclass
@@ -64,6 +69,7 @@ class Sink:
     id: int = -1
     name: str = "Uninitialised Sink"
     active: bool = False
+
 
 class DeviceManager(loggable):
     def __init__(self, parent_logger: None | Logger) -> None:
@@ -129,8 +135,10 @@ class DeviceManager(loggable):
             for line in found.splitlines():
                 if line.startswith("Device "):
                     parts = line.split()
-                    address = parts[1]
+                    address = noramlise_address(parts[1])
                     name = " ".join(parts[2:])
+                    if noramlise_address(name) == address:
+                        continue
                     connected = self._device_connected(address)
                     device = Device(address=address, name=name, connected=connected)
                     device.primary = (
@@ -144,7 +152,7 @@ class DeviceManager(loggable):
 
     def _device_(self, address: str) -> Device:
         for device in self.devices:
-            if device.address.lower() == address.lower():
+            if device.address == noramlise_address(address):
                 return device
         raise Exception(f"Could not find device {address}")
 
@@ -241,7 +249,8 @@ class DeviceManager(loggable):
             devices = data["devices"]
 
             self.devices = [
-                Device(address=address, name=name, connected=False)
+                Device(address=noramlise_address(address), name=name, connected=False)
                 for address, name in devices.items()
+                if noramlise_address(address) != noramlise_address(name)
             ]
             self.logger.info("Loading complete")
