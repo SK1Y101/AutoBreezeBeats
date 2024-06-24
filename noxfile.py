@@ -9,6 +9,10 @@ format_directories = ["tests"] + lint_directories
 
 @nox.session(tags=["run"])
 def run(session: nox.session) -> None:
+    try:
+        session.run("pactl", "--version", external=True)
+    except Exception as e:
+        raise Exception(f"Install pavucontrol to use this program: {e}")
     session.install("-r", "requirements.txt")
     session.run(
         "uvicorn", "src.main:app", "--reload", "--reload-dir", "src", external=True
@@ -77,6 +81,7 @@ def clean(session: nox.session) -> None:
     delete(".nox")
 
     delete_file(".coverage")
+    delete_file("connected_devices.json")
 
 
 @nox.session(tags=["test"])
