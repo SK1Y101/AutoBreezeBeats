@@ -173,26 +173,31 @@ section h2 {
     margin-top: 0;
 }
 
-.device {
-    display: flex;
-    align-items: center;
-    padding: 8px;
-    border-bottom: 1px solid #ccc;
-}
-.device .name {
-    font-weight: bold;
-}
-.device .address {
-    font-size: smaller;
-    margin-left: 8px;
-}
 .connected {
-    color: green;
+    color: white;
+    background-color: green;
     display:inherit;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+.connected:hover {
+    color: white;
+    background-color: darkgreen;
 }
 .disconnected {
-    color: red;
+    color: white;
+    background-color: red;
     display:inherit;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+.disconnected:hover {
+    color: white;
+    background-color: darkred;
 }
 
 /* Playback */
