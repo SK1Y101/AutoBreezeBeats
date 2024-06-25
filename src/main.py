@@ -97,8 +97,19 @@ async def load_video(action: VideoAction):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     async for data in ws_manager.recieve_data(websocket):
-        # Insert logic handling ws data on the server here
-        pass
+        match data:
+            case "play":
+                playback_manager.play
+            case "pause":
+                playback_manager.pause
+            case "next_chapter":
+                playback_manager.skip_next
+            case "prev_chapter":
+                playback_manager.skip_prev
+            case "next_video":
+                playback_manager.skip_queue
+            case _:
+                ws_manager.warn(f"Unknown data {data}")
 
 
 if __name__ == "__main__":
