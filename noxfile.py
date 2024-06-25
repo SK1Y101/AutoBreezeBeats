@@ -30,6 +30,14 @@ def isort(session: nox.session) -> None:
     session.install("isort")
     session.run("isort", "--profile", "black", *format_directories)
 
+    # sort requirements
+    with open(req_file, "r") as f:
+        reqs = f.readlines()
+    sorted_reqs = [req for req in sorted(reqs) if req.strip("\n")]
+    if reqs != sorted_reqs:
+        with open(req_file, "w") as f:
+            f.writelines(sorted_reqs)
+
 
 @nox.session(tags=["lint"])
 def lint(session: nox.session) -> None:
@@ -81,7 +89,7 @@ def clean(session: nox.session) -> None:
     delete(".nox")
 
     delete_file(".coverage")
-    delete_file("connected_devices.json")
+    delete_file("connected_devices.yaml")
 
 
 @nox.session(tags=["test"])
