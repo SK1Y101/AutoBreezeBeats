@@ -84,5 +84,5 @@ async function fetchDevices() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    setInterval(fetchDevices, 1000);
+    setInterval(fetchDevices, 2500);
 });

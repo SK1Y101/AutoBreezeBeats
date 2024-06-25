@@ -1,6 +1,10 @@
+import asyncio
 import logging
 
+# import rich
+import yaml
 from fastapi import FastAPI, Form, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,22 +21,37 @@ from .host_device import get_device_details
 from .playback import PlaybackManager
 from .websockets import WebSocketManager
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-log = logging.getLogger("main")
+application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
+
+with open("src/logging_conf.yaml", "r") as f:
+    logging_config = yaml.safe_load(f)
+logging.config.dictConfig(logging_config)
+log = logging.getLogger(application_details["title"])
+
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "*"
+    ],  # Adjust this to be more restrictive in a production environment
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 templates = Jinja2Templates(directory="src/templates")
-
-application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
 
 ws_manager = WebSocketManager(log)
 device_manager = DeviceManager(log, ws_manager.notifier)
 playback_manager = PlaybackManager(log, ws_manager.notifier)
 
 device_manager.start_scanning()
+
+
+@app.on_event("startup")
+async def startup():
+    await ws_manager.start()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -108,10 +127,20 @@ async def websocket_endpoint(websocket: WebSocket):
             case "next_video":
                 playback_manager.skip_queue
             case _:
-                ws_manager.warn(f"Unknown data {data}")
+                ws_manager.logger.warn(f"Unknown data {data}")
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_config=logging_config)
+    except KeyboardInterrupt:
+        log.info("Keyboard interrupt received, shutting down gracefully")
+    finally:
+        tasks = asyncio.all_tasks()
+        for task in tasks:
+            task.cancel()
+        asyncio.get_event_loop().run_until_complete(
+            asyncio.gather(*tasks, return_exceptions=True)
+        )

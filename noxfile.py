@@ -100,6 +100,7 @@ def clean(session: nox.session) -> None:
 
     delete_file(".coverage")
     delete_file("connected_devices.yaml")
+    delete_file("application.log")
 
 
 @nox.session(tags=["test"])

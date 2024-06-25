@@ -11,7 +11,7 @@ from typing import Any, Generator
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from .common import BreezeBaseClass, check_output, load_data, run, save_data
+from .common import BreezeBaseClass, load_data, save_data
 from .websockets import Notifier
 
 
@@ -98,7 +98,7 @@ class DeviceManager(BreezeBaseClass):
     def start_scanning(self, timeout: int = 5) -> None:
         self.scan_timeout = timeout
         if self.scanning_thread and self.scanning_thread.is_alive():
-            self.warn("Scanning thread already active")
+            self.logger.warn("Scanning thread already active")
             return
         self.keep_scanning = True
         self.scanning_thread = threading.Thread(target=self._scan_devices, daemon=True)
@@ -107,32 +107,35 @@ class DeviceManager(BreezeBaseClass):
     def stop_scanning(self) -> None:
         self.keep_scanning = False
         if self.scanning_thread and self.scanning_thread.is_alive():
-            self.info("Waiting for scanning thread shutdown")
+            self.logger.info("Waiting for scanning thread shutdown")
             self.scanning_thread.join()
 
     def _scan_devices(self) -> None:
         try:
-            self.info("Discovering bluetooth devices")
+            self.logger.info("Discovering bluetooth devices")
             while self.keep_scanning:
-                run(["bluetoothctl", "--timeout", str(self.scan_timeout), "scan", "on"])
+                self.run(
+                    ["bluetoothctl", "--timeout", str(self.scan_timeout), "scan", "on"]
+                )
                 self.devices = self._found_devices()
                 # scan until the next 10 seconds have elapsed
                 sleep(10 * ceil(self.scan_timeout / 10))
         except KeyboardInterrupt:
-            self.info("Forcibly stopping device scanning")
+            self.logger.info("Forcibly stopping device scanning")
         except Exception as e:
-            self.error(f"Error during device scan: {e}")
+            self.logger.error(f"Error during device scan: {e}")
 
     def _device_connected(self, address: str) -> bool:
-        with self.handle_error():
-            output = check_output(["bluetoothctl", "info", address])
+        try:
+            output = self.run(["bluetoothctl", "info", address], capture=True)
             return "Connected: yes" in output
-        return False
+        except Exception:
+            return False
 
     def _found_devices(self) -> list[Device]:
-        with self.handle_error():
+        try:
             devices: list[Device] = []
-            found = check_output(["bluetoothctl", "devices"])
+            found = self.run(["bluetoothctl", "devices"], capture=True)
             for line in found.splitlines():
                 if line.startswith("Device "):
                     parts = line.split()
@@ -149,7 +152,8 @@ class DeviceManager(BreezeBaseClass):
                     )
                     devices.append(device)
             return devices
-        return []
+        except Exception:
+            return []
 
     def _device_(self, address: str) -> Device:
         for device in self.devices:
@@ -158,70 +162,74 @@ class DeviceManager(BreezeBaseClass):
         raise Exception(f"Could not find device {address}")
 
     def connect_device(self, address: str) -> bool:
-        self.info(f"Request connect {address}")
-        with self.handle_error(f"Failed to connect to device {address}"):
-            run(["bluetoothctl", "connect", address])
+        self.logger.info(f"Request connect {address}")
+        try:
+            self.run(["bluetoothctl", "connect", address])
             self._device_(address).connected = True
             self.save_devices()
             return True
-        return False
+        except Exception:
+            return False
 
     def disconnect_device(self, address: str) -> bool:
-        self.info(f"Request disconnect {address}")
-        with self.handle_error(f"Failed to disconnect from {address}"):
-            run(["bluetoothctl", "disconnect", address])
+        self.logger.info(f"Request disconnect {address}")
+        try:
+            self.run(["bluetoothctl", "disconnect", address])
             self._device_(address).connected = True
             self.save_devices()
             return True
-        return False
+        except Exception:
+            return False
 
     @property
     def _sinks_(self) -> Generator[Sink, None, None]:
-        with self.handle_error("Could not find pactl sinks"):
-            output = check_output(["pactl", "list", "short", "sinks"])
-            for line in output.splitlines():
-                idx, name, _, _, active = line.split("\t")
-                sink = Sink(
-                    id=int(idx),
-                    name=name,
-                    active=active.lower() != "suspended",
-                )
-                self.info(f"Found sink {sink}")
-                yield sink
+        output = self.run(["pactl", "list", "short", "sinks"], capture=True)
+        for line in output.splitlines():
+            idx, name, _, _, active = line.split("\t")
+            sink = Sink(
+                id=int(idx),
+                name=name,
+                active=active.lower() != "suspended",
+            )
+            self.logger.info(f"Found sink {sink}")
+            yield sink
 
     def _sink_info_(self, address: str) -> Sink | None:
         for sink in self._sinks_:
             if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
-        self.debug(f"Sink with address '{address}' not found.")
+        self.logger.info(f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:
-        self.info(f"Request to set sink to {address}")
-        with self.handle_error(f"Could not set {address} as sink."):
+        self.logger.info(f"Request to set sink to {address}")
+        try:
             device = self._device_(address=address)
             if not device.connected:
-                self.info(f"device {device} not connected")
+                self.logger.info(f"device {device} not connected")
                 self.connect_device(address)
             if sink := self._sink_info_(device.address):
-                self.info(f"Found sink {sink} for device {device}")
-                run(["pactl", "set-default-sink", str(sink.id)])
+                self.logger.info(f"Found sink {sink} for device {device}")
+                self.run(["pactl", "set-default-sink", str(sink.id)])
                 device.primary = True
                 return True
             else:
-                self.warn(f"Could not find sink for {device}")
+                self.logger.warn(f"Could not find sink for {device}")
+        except Exception:
+            self.logger.error(f"Could not set sink to {address}")
         return False
 
     def unset_sinks(self) -> bool:
-        with self.handle_error("Could not unset"):
+        try:
             for device in self.devices:
                 device.primary = False
             for sink in self._sinks_:
-                self.info(f"Suspending sink {sink}")
-                run(["pactl", "suspend-sink", str(sink.id), "1"])
+                self.logger.info(f"Suspending sink {sink}")
+                self.run(["pactl", "suspend-sink", str(sink.id), "1"])
                 sink.active = False
             return True
-        return False
+        except Exception:
+            return False
 
     def sync_devices(self) -> None:
         clients = self.clients
@@ -235,16 +243,16 @@ class DeviceManager(BreezeBaseClass):
                 self.disconnect_device(device.address)
 
     def save_devices(self) -> None:
-        self.info("Saving device data")
+        self.logger.info("Saving device data")
 
         data = {}
         data["devices"] = {device.address: device.name for device in self.devices}
 
         save_data(self.filename, data)
-        self.info("Saving complete")
+        self.logger.info("Saving complete")
 
     def load_devices(self) -> None:
-        self.info("Loading device data")
+        self.logger.info("Loading device data")
 
         if data := load_data(self.filename):
             devices = data["devices"]
@@ -254,4 +262,4 @@ class DeviceManager(BreezeBaseClass):
                 for address, name in devices.items()
                 if noramlise_address(address) != noramlise_address(name)
             ]
-            self.info("Loading complete")
+            self.logger.info("Loading complete")

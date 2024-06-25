@@ -1,8 +1,6 @@
 import os
-import subprocess
-import sys
-from contextlib import contextmanager
 from logging import Logger, getLogger
+from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Any
 
 import yaml
@@ -23,49 +21,40 @@ class BreezeBaseClass:
     def logger(self, logger: Logger) -> None:
         self._logger = logger
 
-    @contextmanager
-    def handle_error(self, error_msg: str | None = None):
-        try:
-            yield
-        except subprocess.CalledProcessError as e:
-            if error_msg:
-                self.logger.error(f"{error_msg}: {e}")
-            else:
-                self.logger.error(f"Failed to execute command: {e}")
-        except Exception as e:
-            self.logger.error(f"Unexpected error: {e}")
-        finally:
-            pass
-
-    def debug(self, msg: str) -> None:
-        self.logger.debug(msg)
-
-    def info(self, msg: str) -> None:
-        self.logger.info(msg)
-
-    def warn(self, msg: str) -> None:
-        self.logger.warn(msg)
-
-    def error(self, msg: str) -> None:
-        self.logger.error(msg)
+    def run(self, cmd: list[str], capture: bool = False) -> str:
+        return run(cmd, capture=capture, logger=self.logger.getChild("subprocess"))
 
 
-def run(cmd: list[str]) -> None:
-    process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
-    process.communicate()
-    if process.returncode != 0:
-        raise subprocess.CalledProcessError(process.returncode, cmd)
+def run(
+    cmd: list[str],
+    capture: bool = False,
+    logger: Logger = getLogger("subprocess"),
+) -> str:
+    try:
+        process = Popen(
+            cmd, stdout=PIPE if capture else DEVNULL, stderr=PIPE, text=True
+        )
+        stdout, stderr = process.communicate()
+        if stdout:
+            logger.info(stdout)
+        if stderr:
+            logger.error(stderr)
+        if process.returncode != 0:
+            raise CalledProcessError(
+                process.returncode, cmd, output=stdout, stderr=stderr
+            )
+    except CalledProcessError as e:
+        logger.error(f"Command '{' '.join(e.cmd)}' failed: {e.returncode}")
+        logger.error(e.output)
+        logger.error(e.stderr)
+    except FileNotFoundError as e:
+        logger.error(f"Not found: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+    else:
+        return stdout if capture else ""
 
-
-def stdout(cmd: list[str]) -> str:
-    result = subprocess.run(
-        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    return result.stdout
-
-
-def check_output(cmd: list[str]) -> str:
-    return stdout(cmd)
+    raise
 
 
 def save_data(filename: str, data: dict[str, Any]) -> None:

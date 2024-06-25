@@ -20,10 +20,11 @@ class Notifier(BreezeBaseClass):
         self.callbacks: list[Callable[[], Updates]] = []
 
     def register_callback(self, callback: Callable[[], Updates]) -> None:
-        self.info(f"Callback registered: {callback}")
+        self.logger.info(f"Callback registered: {callback}")
         self.callbacks.append(callback)
 
     def get_updates(self) -> list[Updates]:
+        self.logger.info("Fetching websocket updates")
         updates = []
         for callback in self.callbacks:
             if update := callback():
@@ -37,41 +38,58 @@ class WebSocketManager(BreezeBaseClass):
 
         self.notifier = Notifier()
         self.active_connections: list[WebSocket] = []
-        self.interval = 1
+
+        self.update_task: None | asyncio.Task = None
+
+    async def start(self, interval: int = 1) -> None:
+        if self.update_task and not self.update_task.done():
+            self.logger.warn("Update task already active")
+            return
+        self.logger.info("Started update task")
+        self.update_task = asyncio.create_task(self.update_loop(interval))
+
+    async def update_loop(self, interval: int = 1) -> None:
+        self.update_interval = interval
+        self.logger.info(f"Starting update loop with interval {interval}s")
+        try:
+            while True:
+                updates = self.notifier.get_updates()
+                self.logger.info(f"Sending updates: {updates}")
+                for update in updates:
+                    await self.broadcast(update)
+                self.logger.info(f"Updates complete, waiting {interval}s")
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            self.logger.info("Update loop cancelled")
+        except Exception as e:
+            self.logger.error(f"Error during update: {e}")
 
     async def connect(self, websocket: WebSocket) -> None:
-        self.info(f"Client connecting {websocket}")
+        self.logger.info(f"Client connecting {websocket}")
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket) -> None:
-        self.info(f"Client disconnecting {websocket}")
-        self.active_connections.remove(websocket)
+        self.logger.info(f"Client disconnecting {websocket}")
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict) -> None:
-        self.info(f"Sending broadcast: {message}")
+        self.logger.info(f"Sending broadcast: {message}")
         for connection in self.active_connections:
             await connection.send_text(json.dumps(message))
-
-    async def periodic_update(self) -> None:
-        while True:
-            updates = self.notifier.get_updates()
-            for update in updates:
-                await self.broadcast(update)
-            await asyncio.sleep(self.interval)
 
     async def recieve_data(self, websocket: WebSocket) -> AsyncGenerator[Any, None]:
         async with self.keep_connected(websocket):
             while True:
                 data = await websocket.receive_text()
-                self.debug(f"Recieved {data}")
+                self.logger.info(f"Recieved {data}")
                 yield data
                 await self.broadcast({"action": data})
 
     @asynccontextmanager
     async def keep_connected(self, websocket: WebSocket) -> AsyncGenerator[None, None]:
-        loop = asyncio.get_event_loop()
-        loop.create_task(self.connect(websocket))
+        await self.connect(websocket)
         try:
             yield
         except WebSocketDisconnect:

@@ -21,9 +21,7 @@
           <h2>Now playing: << Current Song >></h2>
           <div style="height:720px; width:1280px; background-color:red;"></div>
           <div class="playback-container">
-            <div class="timeline-bar">
-              <div class="progress-bar" id="progress" style="width:40%"></div>
-            </div>
+            <progress id="progress" class="timeline-bar" value="0" max="100"></progress>
             <div class="controls">
               <span class="control-buttons">
                 <div id="elapsed-time">0:40</div> / <div id="total-time">1:40</div>
@@ -38,43 +36,8 @@
         </div>
       </div>
       <div class="queue-section">
-        <h2>Up next: << Queue Position 1 >></h2>
-        <div style="height:360px; width:640px; background-color:red;"></div>
-        <hr>
-
-        <table>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 2 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 3 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 4 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 5 >>
-            </td>
-          </tr>
+        <h2>Up next:</h2>
+        <table id="queue-list">
         </table>
       </div>
     </section>
@@ -92,12 +55,12 @@
 
       <div class="search-section">
         <h2>Add to Queue</h2>
-        <form id="VideForm" action="/video" method="post">
+        <form id="VideoForm" action="/video" method="post">
           <label for="url">Add by URL:</label>
-          <input type="text" id="videoUrl" name="url" required>
+          <input type="text" name="url" required>
           <button type="submit">Search</button>
         </form>
-        <form action="" method="post">
+        <form method="post">
           <label for="query">Search Term:</label>
           <input type="text" name="query" required>
           <button type="submit">Search</button>

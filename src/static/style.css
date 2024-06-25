@@ -215,11 +215,6 @@ section h2 {
     display: flex;
     border-radius: 5px;
 }
-.progress-bar {
-    height: 100%;
-    background-color: aqua;
-    border-radius: 5px;
-}
 .elapsed-time, .total-time {
     margin-bottom: 5px;
 }
