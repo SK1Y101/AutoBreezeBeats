@@ -11,7 +11,7 @@ from typing import Any, Generator
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from .common import check_output, load_data, loggable, run, save_data
+from .common import check_output, load_data, BreezeBaseClass, run, save_data
 
 
 class ConnectError(HTTPException):
@@ -44,6 +44,13 @@ def noramlise_address(address: str) -> str:
 
 
 @dataclass
+class Sink:
+    id: int = -1
+    name: str = "Uninitialised Sink"
+    active: bool = False
+
+
+@dataclass
 class Device:
     address: str
     name: str = "Unknown device"
@@ -64,18 +71,9 @@ class Device:
         return noramlise_address(self.address).replace(":", "_")
 
 
-@dataclass
-class Sink:
-    id: int = -1
-    name: str = "Uninitialised Sink"
-    active: bool = False
-
-
-class DeviceManager(loggable):
+class DeviceManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger) -> None:
-        self.logger = (
-            parent_logger.getChild("devices") if parent_logger else getLogger("devices")
-        )
+        super().__init__("devices", parent_logger)
         self.filename = "connected_devices.json"
 
         self.devices: list[Device] = []
@@ -97,7 +95,7 @@ class DeviceManager(loggable):
     def start_scanning(self, timeout: int = 5) -> None:
         self.scan_timeout = timeout
         if self.scanning_thread and self.scanning_thread.is_alive():
-            self.logger.warning("Scanning thread already active")
+            self.warn("Scanning thread already active")
             return
         self.keep_scanning = True
         self.scanning_thread = threading.Thread(target=self._scan_devices, daemon=True)
@@ -106,21 +104,21 @@ class DeviceManager(loggable):
     def stop_scanning(self) -> None:
         self.keep_scanning = False
         if self.scanning_thread and self.scanning_thread.is_alive():
-            self.logger.info("Waiting for scanning thread shutdown")
+            self.info("Waiting for scanning thread shutdown")
             self.scanning_thread.join()
 
     def _scan_devices(self) -> None:
         try:
-            self.logger.info("Discovering bluetooth devices")
+            self.info("Discovering bluetooth devices")
             while self.keep_scanning:
                 run(["bluetoothctl", "--timeout", str(self.scan_timeout), "scan", "on"])
                 self.devices = self._found_devices()
                 # scan until the next 10 seconds have elapsed
                 sleep(10 * ceil(self.scan_timeout / 10))
         except KeyboardInterrupt:
-            self.logger.info("Forcibly stopping device scanning")
+            self.info("Forcibly stopping device scanning")
         except Exception as e:
-            self.logger.error(f"Error during device scan: {e}")
+            self.error(f"Error during device scan: {e}")
 
     def _device_connected(self, address: str) -> bool:
         with self.handle_error():
@@ -157,7 +155,7 @@ class DeviceManager(loggable):
         raise Exception(f"Could not find device {address}")
 
     def connect_device(self, address: str) -> bool:
-        self.logger.info(f"Request connect {address}")
+        self.info(f"Request connect {address}")
         with self.handle_error(f"Failed to connect to device {address}"):
             run(["bluetoothctl", "connect", address])
             self._device_(address).connected = True
@@ -166,7 +164,7 @@ class DeviceManager(loggable):
         return False
 
     def disconnect_device(self, address: str) -> bool:
-        self.logger.info(f"Request disconnect {address}")
+        self.info(f"Request disconnect {address}")
         with self.handle_error(f"Failed to disconnect from {address}"):
             run(["bluetoothctl", "disconnect", address])
             self._device_(address).connected = True
@@ -185,30 +183,30 @@ class DeviceManager(loggable):
                     name=name,
                     active=active.lower() != "suspended",
                 )
-                self.logger.info(f"Found sink {sink}")
+                self.info(f"Found sink {sink}")
                 yield sink
 
     def _sink_info_(self, address: str) -> Sink | None:
         for sink in self._sinks_:
             if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
-        self.logger.debug(f"Sink with address '{address}' not found.")
+        self.debug(f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:
-        self.logger.info(f"Request to set sink to {address}")
+        self.info(f"Request to set sink to {address}")
         with self.handle_error(f"Could not set {address} as sink."):
             device = self._device_(address=address)
             if not device.connected:
-                self.logger.info(f"device {device} not connected")
+                self.info(f"device {device} not connected")
                 self.connect_device(address)
             if sink := self._sink_info_(device.address):
-                self.logger.info(f"Found sink {sink} for device {device}")
+                self.info(f"Found sink {sink} for device {device}")
                 run(["pactl", "set-default-sink", str(sink.id)])
                 device.primary = True
                 return True
             else:
-                self.logger.warning(f"Could not find sink for {device}")
+                self.warn(f"Could not find sink for {device}")
         return False
 
     def unset_sinks(self) -> bool:
@@ -216,7 +214,7 @@ class DeviceManager(loggable):
             for device in self.devices:
                 device.primary = False
             for sink in self._sinks_:
-                self.logger.info(f"Suspending sink {sink}")
+                self.info(f"Suspending sink {sink}")
                 run(["pactl", "suspend-sink", str(sink.id), "1"])
                 sink.active = False
             return True
@@ -234,16 +232,16 @@ class DeviceManager(loggable):
                 self.disconnect_device(device.address)
 
     def save_devices(self) -> None:
-        self.logger.info("Saving device data")
+        self.info("Saving device data")
 
         data = {}
         data["devices"] = {device.address: device.name for device in self.devices}
 
         save_data(self.filename, data)
-        self.logger.info("Saving complete")
+        self.info("Saving complete")
 
     def load_devices(self) -> None:
-        self.logger.info("Loading device data")
+        self.info("Loading device data")
 
         if data := load_data(self.filename):
             devices = data["devices"]
@@ -253,4 +251,4 @@ class DeviceManager(loggable):
                 for address, name in devices.items()
                 if noramlise_address(address) != noramlise_address(name)
             ]
-            self.logger.info("Loading complete")
+            self.info("Loading complete")

@@ -1,4 +1,4 @@
-import json
+import yaml
 import os
 import subprocess
 import sys
@@ -7,7 +7,13 @@ from logging import Logger, getLogger
 from typing import Any
 
 
-class loggable:
+class BreezeBaseClass:
+    def __init__(self, name: str, parent_logger: Logger | None = None) -> None:
+        self.name = name
+        self.logger = (
+            parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
+        )
+    
     @property
     def logger(self) -> Logger:
         return getattr(self, "_logger", None) or getLogger(self.__class__.__name__)
@@ -29,6 +35,18 @@ class loggable:
             self.logger.error(f"Unexpected error: {e}")
         finally:
             pass
+    
+    def debug(self, msg: str) -> None:
+        self.logger.debug(msg)
+
+    def info(self, msg: str) -> None:
+        self.logger.info(msg)
+    
+    def warn(self, msg: str) -> None:
+        self.logger.warn(msg)
+    
+    def error(self, msg: str) -> None:
+        self.logger.error(msg)
 
 
 def run(cmd: list[str]) -> None:
@@ -51,13 +69,13 @@ def check_output(cmd: list[str]) -> str:
 
 def save_data(filename: str, data: dict[str, Any]) -> None:
     with open(filename, "w") as f:
-        json.dump(data, f)
+        yaml.safe_dump(data, f)
 
 
 def load_data(filename: str) -> dict[str, Any]:
     if os.path.exists(filename):
         with open(filename, "r") as f:
-            return json.load(f)
+            return yaml.safe_load(f)
     else:
         print(f"Could not load data from nonexistent file '{filename}'")
     return {}

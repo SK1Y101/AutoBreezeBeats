@@ -1,2 +1,4 @@
 fastapi
+pytube
 uvicorn
+vlc
