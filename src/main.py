@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,6 +14,8 @@ from .devices import (
     SinkError,
 )
 from .host_device import get_device_details
+from .playback import PlaybackManager, VideoAction
+from .websockets import WebSocketManager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -24,9 +26,12 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 templates = Jinja2Templates(directory="src/templates")
 
-application_details = {"title": "AutoBreezeBeats", "version": "0.1"}
+application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
 
-device_manager = DeviceManager(log)
+ws_manager = WebSocketManager(log)
+device_manager = DeviceManager(log, ws_manager)
+playback_manager = PlaybackManager(log, ws_manager)
+
 device_manager.start_scanning()
 
 
@@ -79,6 +84,21 @@ async def bluetooth_sink(action: SinkAction):
         if not device_manager.unset_sinks():
             raise SinkError("Could not set sink to default")
         return {"message": "default set as new sink"}
+
+
+@app.post("/video")
+async def load_video(action: VideoAction):
+    url = action.url
+    log.info(f"Request to add {url} recieved")
+    video = playback_manager.queue_video_url(url)
+    return video.to_dict
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    async for data in ws_manager.recieve_data(websocket):
+        # Insert logic handling ws data on the server here
+        pass
 
 
 if __name__ == "__main__":

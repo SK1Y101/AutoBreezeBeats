@@ -1,10 +1,11 @@
-import yaml
 import os
 import subprocess
 import sys
 from contextlib import contextmanager
 from logging import Logger, getLogger
 from typing import Any
+
+import yaml
 
 
 class BreezeBaseClass:
@@ -13,7 +14,7 @@ class BreezeBaseClass:
         self.logger = (
             parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
         )
-    
+
     @property
     def logger(self) -> Logger:
         return getattr(self, "_logger", None) or getLogger(self.__class__.__name__)
@@ -35,16 +36,16 @@ class BreezeBaseClass:
             self.logger.error(f"Unexpected error: {e}")
         finally:
             pass
-    
+
     def debug(self, msg: str) -> None:
         self.logger.debug(msg)
 
     def info(self, msg: str) -> None:
         self.logger.info(msg)
-    
+
     def warn(self, msg: str) -> None:
         self.logger.warn(msg)
-    
+
     def error(self, msg: str) -> None:
         self.logger.error(msg)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import threading
 from dataclasses import dataclass
-from logging import Logger, getLogger
+from logging import Logger
 from math import ceil
 from time import sleep
 from typing import Any, Generator
@@ -11,7 +11,8 @@ from typing import Any, Generator
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from .common import check_output, load_data, BreezeBaseClass, run, save_data
+from .common import BreezeBaseClass, check_output, load_data, run, save_data
+from .websockets import Notifier
 
 
 class ConnectError(HTTPException):
@@ -72,7 +73,7 @@ class Device:
 
 
 class DeviceManager(BreezeBaseClass):
-    def __init__(self, parent_logger: None | Logger) -> None:
+    def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("devices", parent_logger)
         self.filename = "connected_devices.json"
 
@@ -83,6 +84,8 @@ class DeviceManager(BreezeBaseClass):
         self.scanning_thread: None | threading.Thread = None
         self.keep_scanning = False
         self.scan_timeout: int = 5
+
+        # notifier.register_callback()
 
     @property
     def clients(self) -> list[str]:
