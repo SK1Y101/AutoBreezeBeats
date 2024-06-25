@@ -1,7 +1,8 @@
 *.pyo
 *.pyc
 .coverage
-connected_devices.json
+connected_devices.*
+stored_songs.*
 
 .nox*
 .mypy*

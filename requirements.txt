@@ -1,2 +1,5 @@
 fastapi
+python-vlc
+pytube
+types-PyYAML
 uvicorn
