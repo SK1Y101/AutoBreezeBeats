@@ -30,6 +30,13 @@ def isort(session: nox.session) -> None:
     session.install("isort")
     session.run("isort", "--profile", "black", *format_directories)
 
+    # sort requirements
+    with open(req_file, "r") as f:
+        reqs = f.readlines()
+    sorted_reqs = [req for req in sorted(reqs) if req.strip("\n")]
+    with open(req_file, "w") as f:
+        f.writelines(sorted_reqs)
+
 
 @nox.session(tags=["lint"])
 def lint(session: nox.session) -> None:

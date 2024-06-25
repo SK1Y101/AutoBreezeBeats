@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from logging import Logger
-from typing import Any, Callable, Generator
+from typing import Any, AsyncGenerator, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -14,7 +14,7 @@ Updates = dict[str, Any]
 
 
 class Notifier(BreezeBaseClass):
-    def __init__(self, parent_logger: None | Logger) -> None:
+    def __init__(self, parent_logger: None | Logger = None) -> None:
         super().__init__("websocket-notifier", parent_logger)
 
         self.callbacks: list[Callable[[], Updates]] = []
@@ -32,7 +32,7 @@ class Notifier(BreezeBaseClass):
 
 
 class WebSocketManager(BreezeBaseClass):
-    def __init__(self, parent_logger: None | Logger) -> None:
+    def __init__(self, parent_logger: None | Logger = None) -> None:
         super().__init__("websocket", parent_logger)
 
         self.notifier = Notifier()
@@ -60,16 +60,16 @@ class WebSocketManager(BreezeBaseClass):
                 await self.broadcast(update)
             await asyncio.sleep(self.interval)
 
-    async def recieve_data(self, websocket: WebSocket) -> Generator[Any, None, None]:
-        with self.keep_connected(websocket):
+    async def recieve_data(self, websocket: WebSocket) -> AsyncGenerator[Any, None]:
+        async with self.keep_connected(websocket):
             while True:
-                data = await websocket.recieve_text()
+                data = await websocket.receive_text()
                 self.debug(f"Recieved {data}")
                 yield data
                 await self.broadcast({"action": data})
 
-    @contextmanager
-    async def keep_connected(self, websocket: WebSocket) -> Generator[None, None, None]:
+    @asynccontextmanager
+    async def keep_connected(self, websocket: WebSocket) -> AsyncGenerator[None, None]:
         loop = asyncio.get_event_loop()
         loop.create_task(self.connect(websocket))
         try:

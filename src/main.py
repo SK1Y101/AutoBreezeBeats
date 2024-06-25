@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,8 +29,8 @@ templates = Jinja2Templates(directory="src/templates")
 application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
 
 ws_manager = WebSocketManager(log)
-device_manager = DeviceManager(log, ws_manager)
-playback_manager = PlaybackManager(log, ws_manager)
+device_manager = DeviceManager(log, ws_manager.notifier)
+playback_manager = PlaybackManager(log, ws_manager.notifier)
 
 device_manager.start_scanning()
 

@@ -1,15 +1,11 @@
 import io
 import queue
-import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from logging import Logger, getLogger
-from time import sleep
-from typing import Optional
+from logging import Logger
+from typing import Any, Generator, Optional
 
-import pygame
 import vlc
-import yt_dlp
 from pydantic import BaseModel
 from pytube import Youtube
 
@@ -27,7 +23,7 @@ class Chapter:
     time: int
 
     @property
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, str | int]:
         return {"title": self.title, "time": self.time}
 
 
@@ -40,7 +36,7 @@ class Video:
         self.thumbnail = self.yt.thumbnail_url
         self.length = self.yt.length
 
-        self.streams = self.yt.streams.filter(only_audio=True).first()
+        self.stream = self.yt.streams.filter(only_audio=True).first()
         self.stream_data = self.stream.stream_to_buffer().read
 
     @property
@@ -53,7 +49,7 @@ class Video:
         return []
 
     @property
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "thumbnail": self.thumbnail,
@@ -68,11 +64,10 @@ class PlaybackManager(BreezeBaseClass):
 
         self.player = vlc.MediaPlayer()
 
-        self.queue: queue.SimpleQueue[Video] = []
+        self.queue: queue.Queue[Video] = queue.Queue()
         self.current_song: Optional[Video] = None
 
         self.is_playing = False
-        self.duration = 0
 
         notifier.register_callback(self.get_progress_update)
         notifier.register_callback(self.get_queue_update)
@@ -86,12 +81,12 @@ class PlaybackManager(BreezeBaseClass):
         return {"queue": self.show_queue}
 
     @contextmanager
-    def song_error(self):
+    def song_error(self) -> Generator[Video, None, None]:
         try:
             if not self.current_song:
                 self.shift_queue
             if self.current_song:
-                yield
+                yield self.current_song
             else:
                 raise BufferError("No song currently exists to play!")
         except Exception as e:
@@ -125,8 +120,8 @@ class PlaybackManager(BreezeBaseClass):
             return
         if not self.current_song:
             self.play_from_queue
-        with self.song_error():
-            self.debug(f"Playing {self.current_song}")
+        with self.song_error() as current_song:
+            self.debug(f"Playing {current_song}")
             self.player.play()
             self.is_playing = True
 
@@ -136,8 +131,8 @@ class PlaybackManager(BreezeBaseClass):
         if not self.is_playing:
             self.info("No song currently playing")
             return
-        with self.song_error():
-            self.debug(f"Pausing {self.current_song}")
+        with self.song_error() as current_song:
+            self.debug(f"Pausing {current_song}")
             self.player.pause()
             self.is_playing = False
 
@@ -164,9 +159,9 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def skip_next(self) -> None:
-        with self.song_error():
+        with self.song_error() as current_song:
             current_time = self.elapsed * 1000
-            chapters = self.current_song.chapters
+            chapters = current_song.chapters
             if not chapters:
                 self.warn("Current song has no chapters.")
                 return
@@ -181,9 +176,9 @@ class PlaybackManager(BreezeBaseClass):
     @property
     def skip_prev(self) -> None:
         self.info("Skipping to previous chapter.")
-        with self.song_error():
+        with self.song_error() as current_song:
             current_time = self.elapsed * 1000
-            chapters = self.current_song.chapters
+            chapters = current_song.chapters
             if not chapters:
                 self.warn("Current song has no chapters.")
                 return
@@ -200,7 +195,7 @@ class PlaybackManager(BreezeBaseClass):
     @property
     def shift_queue(self) -> None:
         if not self.current_song:
-            if self.queue.empty:
+            if self.queue.qsize() == 0:
                 self.error("No song in queue!")
                 return
             video = self.queue.get()
@@ -236,9 +231,9 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def show_queue(self) -> list[dict[str, str]]:
-        return [video.to_dict for video in self.queue]
+        return [video.to_dict for video in self.queue.queue]
 
     @property
     def show_current(self) -> dict[str, str]:
-        with self.song_error():
-            return self.current_song.to_dict
+        with self.song_error() as current_song:
+            return current_song.to_dict
