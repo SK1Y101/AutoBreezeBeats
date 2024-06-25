@@ -92,12 +92,12 @@
 
       <div class="search-section">
         <h2>Add to Queue</h2>
-        <form action="/add_to_queue" method="post">
-          <label for="query">Add by URL:</label>
-          <input type="text" name="query" required>
+        <form id="VideForm" action="/video" method="post">
+          <label for="url">Add by URL:</label>
+          <input type="text" id="videoUrl" name="url" required>
           <button type="submit">Search</button>
         </form>
-        <form action="/search_youtube" method="post">
+        <form action="" method="post">
           <label for="query">Search Term:</label>
           <input type="text" name="query" required>
           <button type="submit">Search</button>
@@ -114,5 +114,6 @@
 
     <script src="/static/script.js"></script>
     <script src="/static/devices.js"></script>
+    <script src="/static/playback.js"></script>
   </body>
 </html>

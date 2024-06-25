@@ -1,20 +1,18 @@
 import io
 import queue
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cached_property
 from logging import Logger
 from typing import Any, Generator, Optional
 
 import vlc
-from pydantic import BaseModel
-from pytube import Youtube
+import yt_dlp
+from pytube import YouTube
 
 from .common import BreezeBaseClass
 from .websockets import Notifier, Updates
-
-
-class VideoAction(BaseModel):
-    url: str
 
 
 @dataclass
@@ -30,23 +28,33 @@ class Chapter:
 class Video:
     def __init__(self, url: str) -> None:
         self.url = url
-        self.yt = Youtube(url)
+        self.yt = YouTube(url)
 
         self.title = self.yt.title
         self.thumbnail = self.yt.thumbnail_url
         self.length = self.yt.length
 
         self.stream = self.yt.streams.filter(only_audio=True).first()
-        self.stream_data = self.stream.stream_to_buffer().read
 
-    @property
+        buffer = io.BytesIO()
+        self.stream.stream_to_buffer(buffer)
+        buffer.seek(0)
+        self.stream_data = buffer.read()
+
+    def __str__(self) -> str:
+        return f"<< Video: {self.title} at {self.url} >>"
+
+    @cached_property
     def chapters(self) -> list[Chapter]:
-        if self.yt.metadata:
-            return [
-                Chapter(title=chapter.title, time=chapter.start_time)
-                for chapter in self.yt.metadata.chapters
-            ]
-        return []
+        chapters = []
+        with yt_dlp.YoutubeDL({}) as ydl:
+            info = ydl.extract_info(self.url, download=False)
+            for chapter in info.get("chapters", []):
+                title = chapter.get("title")
+                start = chapter.get("start_time")
+                if start is not None and title:
+                    chapters.append(Chapter(title=title, time=start))
+        return chapters
 
     @property
     def to_dict(self) -> dict[str, Any]:
@@ -97,8 +105,12 @@ class PlaybackManager(BreezeBaseClass):
     def _load_(self, video: Video) -> None:
         self.info(f"Loading {video} into memory")
         audio = video.stream_data
-        media = vlc.Media(io.BytesIO(audio))
-        self.player.set_media(media)
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            tmp_file.write(audio)
+            tmp_file.flush()
+            media = vlc.Media(tmp_file.name)
+            self.player.set_media(media)
+        self.info(f"Loaded {video} into player")
 
     def set_song(self, video: Video) -> None:
         self._load_(video)
@@ -194,12 +206,18 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def shift_queue(self) -> None:
+        self.debug("shifting queue")
         if not self.current_song:
+            self.info("No current song, checking queue")
             if self.queue.qsize() == 0:
                 self.error("No song in queue!")
                 return
             video = self.queue.get()
             self.set_song(video)
+        msg = f"Updated current video: {video}"
+        if self.queue.qsize() > 0:
+            msg += f"; queue: {self.list_queue}"
+        self.info(msg)
 
     @property
     def play_from_queue(self) -> None:
@@ -228,6 +246,10 @@ class PlaybackManager(BreezeBaseClass):
         self.info(f"Adding {url} to queue.")
         video = Video(url)
         return self.queue_video(video)
+
+    @property
+    def list_queue(self) -> str:
+        return ", ".join(self.queue.queue)
 
     @property
     def show_queue(self) -> list[dict[str, str]]:

@@ -3,3 +3,4 @@ python-vlc
 pytube
 types-PyYAML
 uvicorn
+yt-dlp

@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Form, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,7 +14,7 @@ from .devices import (
     SinkError,
 )
 from .host_device import get_device_details
-from .playback import PlaybackManager, VideoAction
+from .playback import PlaybackManager
 from .websockets import WebSocketManager
 
 logging.basicConfig(
@@ -87,8 +87,7 @@ async def bluetooth_sink(action: SinkAction):
 
 
 @app.post("/video")
-async def load_video(action: VideoAction):
-    url = action.url
+async def load_video(url: str = Form(...)):
     log.info(f"Request to add {url} recieved")
     video = playback_manager.queue_video_url(url)
     return video.to_dict
