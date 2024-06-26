@@ -7,16 +7,26 @@ lint_directories = ["noxfile.py"] + code_directories
 format_directories = ["tests"] + lint_directories
 
 
-@nox.session(tags=["run"])
+@nox.session
 def run(session: nox.session) -> None:
     try:
         session.run("pactl", "--version", external=True)
     except Exception as e:
         raise Exception(f"Install pavucontrol to use this program: {e}")
-    session.install("-r", "requirements.txt")
+    session.install("-r", req_file)
     session.run(
         "uvicorn", "src.main:app", "--reload", "--reload-dir", "src", external=True
     )
+
+
+@nox.session
+def dev(session: nox.session) -> None:
+    try:
+        session.run("pactl", "--version", external=True)
+    except Exception as e:
+        raise Exception(f"Install pavucontrol to use this program: {e}")
+    session.install("-r", req_file)
+    session.run("python3")
 
 
 @nox.session(tags=["format", "lint"])
@@ -90,6 +100,7 @@ def clean(session: nox.session) -> None:
 
     delete_file(".coverage")
     delete_file("connected_devices.yaml")
+    delete_file("application.log")
 
 
 @nox.session(tags=["test"])
