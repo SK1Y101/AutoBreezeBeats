@@ -1,8 +1,6 @@
-import os
 import queue
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cached_property
 from logging import Logger
 from typing import Any, Generator, Optional
 
@@ -30,10 +28,12 @@ class Video:
         self.duration = 0
         self.thumbnail = "Unknown"
         self.audio_url = "Unknown"
-        self.chapters = []
+        self.chapters: list[Chapter] = []
+
+        self.current_chapter: int = 0
 
         self.get_info()
-    
+
     def get_info(self) -> None:
         self.chapters = []
         with yt_dlp.YoutubeDL({}) as ydl:
@@ -44,15 +44,18 @@ class Video:
 
                 self.audio_url = self.get_audio(info)
                 self.chapters = self.get_chapters(info)
-    
-    def get_audio(self, info: dict[str, str]) -> str:
-        if audio_formats := [formats for formats in info["formats"] if formats.get("acodec") == "opus"]:
+
+    def get_audio(self, info: dict[str, Any]) -> str:
+        if audio_formats := [
+            formats for formats in info["formats"] if formats.get("acodec") == "opus"
+        ]:
             best_audio = max(audio_formats, key=lambda x: x["abr"])
             return best_audio["url"]
         else:
             print("No audio streams found.")
-    
-    def get_chapters(self, info: dict[str, str]) -> list[Chapter]:
+        return ""
+
+    def get_chapters(self, info: dict[str, Any]) -> list[Chapter]:
         found = []
         if chapters := info.get("chapters"):
             for chapter in chapters:
@@ -113,12 +116,12 @@ class PlaybackManager(BreezeBaseClass):
             "playing": self.is_playing,
             "elapsed": self.elapsed,
             "duration": self.duration,
-            "current": None,
-            "chapters": None,
-            "current_chapter": None,
+            "current": False,
+            "chapters": False,
+            "current_chapter": False,
         }
         if self.current_song:
-            info["current"] = self.current_song.to_dict  # type:ignore [assignment]
+            info["current"] = self.current_song.chapterless_dict  # type:ignore [assignment]
             info["chapters"] = self.current_song.chapters != []
             if chapter := self.current_chapter:
                 info["current_chapter"] = chapter.to_dict  # type:ignore [assignment]
@@ -156,7 +159,7 @@ class PlaybackManager(BreezeBaseClass):
 
     def set_song_url(self, url: str) -> None:
         self.set_song(Video(url))
-    
+
     def set_volume(self, volume: int) -> None:
         self.player.audio_set_volume(max(0, min(100, volume)))
 
@@ -196,14 +199,14 @@ class PlaybackManager(BreezeBaseClass):
     def set_time(self, seconds: float) -> None:
         with self.song_error():
             self.logger.info(f"Skipping to {seconds}s")
-            self.player.set_time(seconds * 1000)
+            self.player.set_time(int(seconds*1000))
         self.logger.info("Skip request complete")
 
     @property
     def elapsed(self) -> float:
         if self.current_song:
             elapsed = self.player.get_time() / 1000
-            self.logger.info(f"Currently at {elapsed}s")
+            self.logger.debug(f"Currently at {elapsed}s")
             return elapsed
         return 0
 
@@ -211,64 +214,57 @@ class PlaybackManager(BreezeBaseClass):
     def duration(self) -> float:
         if self.current_song:
             duration = self.current_song.duration
-            self.logger.info(f"Current song is {duration}s long")
+            self.logger.debug(f"Current song is {duration}s long")
             return duration
         return 0
 
     @property
     def current_chapter(self) -> Chapter | None:
-        self.logger.info("Fetching current chapter.")
+        self.logger.debug("Fetching current chapter.")
         with self.song_error() as current_song:
-            current_time = self.elapsed
-            chapters = current_song.chapters
-            if not chapters:
+            if not current_song.chapters:
                 self.logger.warn("Current song has no chapters.")
                 return None
-
-            previous_chapter = None
-            for chapter in chapters:
-                if chapter.time > current_time:
-                    return previous_chapter
-                previous_chapter = chapter
+            
+            for idx, chapter in enumerate(current_song.chapters[current_song.current_chapter:]):
+                if self.elapsed < chapter.time:
+                    self.current_song.current_chapter = idx-1
+                    return current_song.chapters[current_song.current_chapter]
         return None
 
     @property
     def skip_next(self) -> None:
-        with self.song_error() as current_song:
-            current_time = self.elapsed
-            chapters = current_song.chapters
-            if not chapters:
-                self.logger.warn("Current song has no chapters.")
+        if self.current_chapter:
+            next_idx = self.current_song.current_chapter + 1
+            if next_idx > len(self.current_song.chapters):
+                self.logger.debug("On last chapter already, skipping")
+                self.skip_queue
                 return
-        
-            self.logger.info(f"Skipping from {current_time} to next chapter")
+            
+            next_chapter = self.current_song.chapters[next_idx]
 
-            for chapter in chapters:
-                self.logger.debug
-                if chapter.time > current_time:
-                    self.set_time(chapter.time)
-                    return
-            self.skip_queue
+            self.logger.info(f"Skipping to {next_chapter.title}")
+            self.set_time(next_chapter.time)
 
     @property
     def skip_prev(self) -> None:
-        self.logger.info("Skipping to previous chapter.")
-        with self.song_error() as current_song:
-            current_time = self.elapsed * 1000
-            chapters = current_song.chapters
-            if not chapters:
-                self.logger.warn("Current song has no chapters.")
-                return
+        if self.current_chapter:
+            this_idx = self.current_song.current_chapter
+            prev_idx = max(0, self.current_song.current_chapter - 1)
 
-            for chapter in chapters[::-1]:
-                # if we've just skipped back, skip to the previous
-                if chapter.time + 2 < current_time:
-                    self.set_time(chapter.time)
-                    break
+            this = self.current_song.chapters[this_idx]
+            prev = self.current_song.chapters[prev_idx]
+
+            if this.time + 2 > self.elapsed:
+                self.logger.info(f"Close to start of {this.title}, Skipping back to {prev.title}")
+                self.set_time(prev.time)
+            else:
+                self.logger.info(f"Skipping back to the start of {this.title}")
+                self.set_time(this.time)
 
     @property
     def shift_queue(self) -> None:
-        self.logger.info("shifting queue")
+        self.logger.debug("shifting queue")
         if self.current_song:
             self.logger.info(
                 f"Song {self.current_song} already in queue, no shifting needed"

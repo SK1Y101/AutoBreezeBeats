@@ -139,9 +139,13 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         if (message.current_chapter !== undefined) {
-            currentChapter.textContent = message.currentChapter;
-        } else {
-            currentChapter.textContent = "";
+            const chapter = message.current_chapter;
+            if (current === false) {
+                currentChapter.textContent = "";
+            } else {
+                currentChapter.textContent = chapter;
+
+            };
         };
     };
 

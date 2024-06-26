@@ -1,18 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import re
-import threading
 from dataclasses import dataclass
 from logging import Logger
-from math import ceil
-from time import sleep
 from typing import Any, Generator
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 from .common import BreezeBaseClass, load_data, save_data
-from .websockets import Notifier
+from .websockets import Notifier, Updates
 
 
 class ConnectError(HTTPException):
@@ -81,49 +79,28 @@ class DeviceManager(BreezeBaseClass):
         self.load_devices()
         self.sync_devices()
 
-        self.scanning_thread: None | threading.Thread = None
-        self.keep_scanning = False
-        self.scan_timeout: int = 5
+        self.scanning_task: None | asyncio.Task = None
 
-        # notifier.register_callback()
+        notifier.register_callback(self.get_current_devices)
 
-    @property
-    def clients(self) -> list[str]:
-        return [device.address for device in self.devices if device.connected]
-
-    @property
-    def list_devices(self) -> list[dict[str, Any]]:
-        return [device.to_dict for device in self.devices]
-
-    def start_scanning(self, timeout: int = 5) -> None:
-        self.scan_timeout = timeout
-        if self.scanning_thread and self.scanning_thread.is_alive():
-            self.logger.warn("Scanning thread already active")
+    async def start(self, interval: int = 1) -> None:
+        if self.scanning_task and not self.scanning_task.done():
+            self.logger.warn("Scanning task already active")
             return
-        self.keep_scanning = True
-        self.scanning_thread = threading.Thread(target=self._scan_devices, daemon=True)
-        self.scanning_thread.start()
+        self.logger.info("Started scanning task")
+        self.update_task = asyncio.create_task(self.scan_loop(interval), name="Scan for devices")
 
-    def stop_scanning(self) -> None:
-        self.keep_scanning = False
-        if self.scanning_thread and self.scanning_thread.is_alive():
-            self.logger.info("Waiting for scanning thread shutdown")
-            self.scanning_thread.join()
-
-    def _scan_devices(self) -> None:
+    async def scan_loop(self, interval: int = 1) -> None:
+        self.logger.info(f"Starting scan loop with interval {interval}s")
         try:
-            self.logger.info("Discovering bluetooth devices")
-            while self.keep_scanning:
-                self.run(
-                    ["bluetoothctl", "--timeout", str(self.scan_timeout), "scan", "on"]
-                )
+            while True:
+                self.run(["bluetoothctl", "--timeout", str(interval), "scan", "on"])
                 self.devices = self._found_devices()
-                # scan until the next 10 seconds have elapsed
-                sleep(10 * ceil(self.scan_timeout / 10))
-        except KeyboardInterrupt:
-            self.logger.info("Forcibly stopping device scanning")
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            self.logger.info("Scan loop cancelled")
         except Exception as e:
-            self.logger.error(f"Error during device scan: {e}")
+            self.logger.error(f"Error during scan: {e}")
 
     def _device_connected(self, address: str) -> bool:
         try:
@@ -154,6 +131,19 @@ class DeviceManager(BreezeBaseClass):
             return devices
         except Exception:
             return []
+
+    def get_current_devices(self) -> Updates:
+        devices = self.list_devices
+        self.logger.getChild("device_update").debug(devices)
+        return {"devices": devices}
+
+    @property
+    def clients(self) -> list[str]:
+        return [device.address for device in self.devices if device.connected]
+
+    @property
+    def list_devices(self) -> list[dict[str, Any]]:
+        return [device.to_dict for device in self.devices]
 
     def _device_(self, address: str) -> Device:
         for device in self.devices:
@@ -191,14 +181,14 @@ class DeviceManager(BreezeBaseClass):
                 name=name,
                 active=active.lower() != "suspended",
             )
-            self.logger.info(f"Found sink {sink}")
+            self.logger.debug(f"Found sink {sink}")
             yield sink
 
     def _sink_info_(self, address: str) -> Sink | None:
         for sink in self._sinks_:
             if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
-        self.logger.info(f"Sink with address '{address}' not found.")
+        self.logger.warn(f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:

@@ -36,7 +36,7 @@ def run(
         )
         stdout, stderr = process.communicate()
         if stdout:
-            logger.info(stdout)
+            logger.debug(stdout)
         if stderr:
             logger.error(stderr)
         if process.returncode != 0:

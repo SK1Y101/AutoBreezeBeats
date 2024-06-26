@@ -46,17 +46,16 @@ ws_manager = WebSocketManager(log)
 device_manager = DeviceManager(log, ws_manager.notifier)
 playback_manager = PlaybackManager(log, ws_manager.notifier)
 
-device_manager.start_scanning()
-
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ws_manager.start()
+    await ws_manager.start(0.5)
+    await device_manager.start(0.5)
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    playback_manager._remove_all_()
+    pass
 
 
 @app.get("/", response_class=HTMLResponse)
