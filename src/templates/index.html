@@ -17,64 +17,30 @@
 
     <section class="main-content">
       <div class="video-section">
-        <div id="current-video" >
-          <h2>Now playing: << Current Song >></h2>
-          <div style="height:720px; width:1280px; background-color:red;"></div>
+        <div>
+          <h2 id="current-title"></h2>
+          <div class="thumbnail-container">
+            <img id="current-thumbnail" src="" style="height:720px; width:1280px; background-color: darkgrey;">
+            <div id="current-chapter" class="top-left"></div>
+          </div>
           <div class="playback-container">
-            <div class="timeline-bar">
-              <div class="progress-bar" id="progress" style="width:40%"></div>
-            </div>
+            <progress id="progress" class="timeline-bar" value="0" max="100"></progress>
             <div class="controls">
               <span class="control-buttons">
-                <div id="elapsed-time">0:40</div> / <div id="total-time">1:40</div>
+                <div id="elapsed-time">0:00:00</div> / <div id="total-time">0:00:00</div>
               </span>
               <!-- ▶️⏩⏭️⏪⏸️ -->
-              <button class="control-button" id="skip-previous">⏪</button>
+              <button class="control-button" id="skip-previous" disabled>⏪</button>
               <button class="control-button center-button" id="play-pause">▶</button>
-              <button class="control-button" id="skip-next">⏩</button>
+              <button class="control-button" id="skip-next" disabled>⏩</button>
               <button class="control-button" id="skip-full">⏭️</button>
             </div>
           </div>
         </div>
       </div>
       <div class="queue-section">
-        <h2>Up next: << Queue Position 1 >></h2>
-        <div style="height:360px; width:640px; background-color:red;"></div>
-        <hr>
-
-        <table>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 2 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 3 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 4 >>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div style="height:72px; width:128px; background-color:red;"></div>
-            </td>
-            <td>
-              << Queue Position 5 >>
-            </td>
-          </tr>
+        <h2>Up next:</h2>
+        <table id="queue-list">
         </table>
       </div>
     </section>
@@ -92,17 +58,17 @@
 
       <div class="search-section">
         <h2>Add to Queue</h2>
-        <form action="/add_to_queue" method="post">
-          <label for="query">Add by URL:</label>
-          <input type="text" name="query" required>
+        <form id="VideoForm" action="/video" method="post">
+          <label for="url">Add by URL:</label>
+          <input type="text" name="url" required>
           <button type="submit">Search</button>
         </form>
-        <form action="/search_youtube" method="post">
+        <form method="post" style="display: none;">
           <label for="query">Search Term:</label>
           <input type="text" name="query" required>
           <button type="submit">Search</button>
         </form>
-        <div class="search-results">
+        <div class="search-results" style="display: none;">
           <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 0 >></div>
           <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 1 >></div>
           <div style="margin-right:5%; height:72px; width:128px; background-color:red;"><< Search result 2 >></div>
@@ -114,5 +80,6 @@
 
     <script src="/static/script.js"></script>
     <script src="/static/devices.js"></script>
+    <script src="/static/playback.js"></script>
   </body>
 </html>

@@ -7,3 +7,4 @@ stored_songs.*
 .nox*
 .mypy*
 .pytest*
+*.log
