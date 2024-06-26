@@ -1,6 +1,5 @@
 fastapi
 python-vlc
-pytube
 rich
 types-PyYAML
 uvicorn

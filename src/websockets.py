@@ -24,7 +24,7 @@ class Notifier(BreezeBaseClass):
         self.callbacks.append(callback)
 
     def get_updates(self) -> list[Updates]:
-        self.logger.info("Fetching websocket updates")
+        self.logger.debug("Fetching websocket updates")
         updates = []
         for callback in self.callbacks:
             if update := callback():
@@ -54,10 +54,10 @@ class WebSocketManager(BreezeBaseClass):
         try:
             while True:
                 updates = self.notifier.get_updates()
-                self.logger.info(f"Sending updates: {updates}")
+                self.logger.debug(f"Sending updates: {updates}")
                 for update in updates:
-                    await self.broadcast(update)
-                self.logger.info(f"Updates complete, waiting {interval}s")
+                    await self.broadcast(update, self.logger.getChild("update_loop"))
+                self.logger.debug(f"Updates complete, waiting {interval}s")
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
             self.logger.info("Update loop cancelled")
@@ -74,8 +74,8 @@ class WebSocketManager(BreezeBaseClass):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
-    async def broadcast(self, message: dict) -> None:
-        self.logger.info(f"Sending broadcast: {message}")
+    async def broadcast(self, message: dict, logger: Logger | None = None) -> None:
+        (logger or self.logger).debug(f"Sending broadcast: {message}")
         for connection in self.active_connections:
             await connection.send_text(json.dumps(message))
 
@@ -83,7 +83,7 @@ class WebSocketManager(BreezeBaseClass):
         async with self.keep_connected(websocket):
             while True:
                 data = await websocket.receive_text()
-                self.logger.info(f"Recieved {data}")
+                self.logger.info(f"Recieved data '{data}'")
                 yield data
                 await self.broadcast({"action": data})
 

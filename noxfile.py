@@ -13,7 +13,7 @@ def run(session: nox.session) -> None:
         session.run("pactl", "--version", external=True)
     except Exception as e:
         raise Exception(f"Install pavucontrol to use this program: {e}")
-    session.install("-r", "requirements.txt")
+    session.install("-r", req_file)
     session.run(
         "uvicorn", "src.main:app", "--reload", "--reload-dir", "src", external=True
     )
@@ -25,7 +25,7 @@ def dev(session: nox.session) -> None:
         session.run("pactl", "--version", external=True)
     except Exception as e:
         raise Exception(f"Install pavucontrol to use this program: {e}")
-    session.install("-r", "requirements.txt")
+    session.install("-r", req_file)
     session.run("python3")
 
 

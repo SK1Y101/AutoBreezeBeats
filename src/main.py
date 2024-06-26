@@ -50,8 +50,13 @@ device_manager.start_scanning()
 
 
 @app.on_event("startup")
-async def startup():
+async def startup() -> None:
     await ws_manager.start()
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    playback_manager._remove_all_()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -138,6 +143,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
+        playback_manager.set_volume(playback_manager._previous_volume_)
         tasks = asyncio.all_tasks()
         for task in tasks:
             task.cancel()

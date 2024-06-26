@@ -207,6 +207,16 @@ section h2 {
     flex-direction: column;
     align-items: center;
 }
+.thumbnail-container {
+    position: relative;
+    text-align: center;
+    color: white;
+}
+.top-left {
+    position: absolute;
+    top: 8px;
+    left: 16px;
+  }
 .timeline-bar {
     width: 100%;
     height: 40px;

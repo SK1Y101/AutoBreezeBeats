@@ -1,6 +1,5 @@
-import io
+import os
 import queue
-import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
@@ -9,7 +8,6 @@ from typing import Any, Generator, Optional
 
 import vlc
 import yt_dlp
-from pytube import YouTube
 
 from .common import BreezeBaseClass
 from .websockets import Notifier, Updates
@@ -28,34 +26,44 @@ class Chapter:
 class Video:
     def __init__(self, url: str) -> None:
         self.url = url
-        self.yt = YouTube(url)
+        self.title = "Unknown"
+        self.duration = 0
+        self.thumbnail = "Unknown"
+        self.audio_url = "Unknown"
+        self.chapters = []
 
-        self.title = self.yt.title
-        self.thumbnail = self.yt.thumbnail_url
-        self.duration = self.yt.length
+        self.get_info()
+    
+    def get_info(self) -> None:
+        self.chapters = []
+        with yt_dlp.YoutubeDL({}) as ydl:
+            if info := ydl.extract_info(self.url, download=False):
+                self.title = info["title"]
+                self.duration = info["duration"]
+                self.thumbnail = info["thumbnail"]
 
-        self.stream = self.yt.streams.filter(only_audio=True).first()
-
-        buffer = io.BytesIO()
-        self.stream.stream_to_buffer(buffer)
-        buffer.seek(0)
-        self.stream_data = buffer.read()
+                self.audio_url = self.get_audio(info)
+                self.chapters = self.get_chapters(info)
+    
+    def get_audio(self, info: dict[str, str]) -> str:
+        if audio_formats := [formats for formats in info["formats"] if formats.get("acodec") == "opus"]:
+            best_audio = max(audio_formats, key=lambda x: x["abr"])
+            return best_audio["url"]
+        else:
+            print("No audio streams found.")
+    
+    def get_chapters(self, info: dict[str, str]) -> list[Chapter]:
+        found = []
+        if chapters := info.get("chapters"):
+            for chapter in chapters:
+                title = chapter.get("title")
+                start = chapter.get("start_time")
+                if start is not None and title:
+                    found.append(Chapter(title=title, time=start))
+        return found
 
     def __str__(self) -> str:
         return f"<< Video: {self.title} at {self.url} >>"
-
-    @cached_property
-    def chapters(self) -> list[Chapter]:
-        chapters = []
-        with yt_dlp.YoutubeDL({}) as ydl:
-            if info := ydl.extract_info(self.url, download=False):
-                if chapters := info.get("chapters"):
-                    for chapter in chapters:
-                        title = chapter.get("title")
-                        start = chapter.get("start_time")
-                        if start is not None and title:
-                            chapters.append(Chapter(title=title, time=start))
-        return chapters
 
     @property
     def to_dict(self) -> dict[str, Any]:
@@ -68,34 +76,57 @@ class Video:
             info["chapters"] = [chapter.to_dict for chapter in chapters]
         return info
 
+    @property
+    def chapterless_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in self.to_dict.items() if k != "chapters"}
+
 
 class PlaybackManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("playback", parent_logger)
 
-        self.player = vlc.MediaPlayer()
+        self.vlc_instance = vlc.Instance("--no-xlib")
+        self.player = self.vlc_instance.media_player_new()
+        self._previous_volume_ = self.player.audio_get_volume()
+        self.set_volume(100)
 
         self.queue: queue.Queue[Video] = queue.Queue()
         self.current_song: Optional[Video] = None
 
-        self.is_playing = False
-
-        notifier.register_callback(self.get_progress_update)
+        notifier.register_callback(self.get_current_song_update)
         notifier.register_callback(self.get_queue_update)
 
     @property
     def _queue_(self) -> list[Video]:
         return self.queue.queue
 
-    def get_progress_update(self) -> Updates:
-        self.logger.info(f"Request queue update: {self.current_song}")
-        if self.is_playing:
-            return {"progress": self.elapsed, "duration": self.duration}
-        return {}
+    @property
+    def _all_(self) -> list[Video]:
+        songs = self._queue_
+        if self.current_song:
+            songs.insert(0, self.current_song)
+        return songs
+
+    def get_current_song_update(self) -> Updates:
+        self.logger.getChild("song_update").debug(self.current_song)
+        info = {
+            "playing": self.is_playing,
+            "elapsed": self.elapsed,
+            "duration": self.duration,
+            "current": None,
+            "chapters": None,
+            "current_chapter": None,
+        }
+        if self.current_song:
+            info["current"] = self.current_song.to_dict  # type:ignore [assignment]
+            info["chapters"] = self.current_song.chapters != []
+            if chapter := self.current_chapter:
+                info["current_chapter"] = chapter.to_dict  # type:ignore [assignment]
+        return info
 
     def get_queue_update(self) -> Updates:
         queue = self.show_queue
-        self.logger.info(f"Request queue update: {queue}")
+        self.logger.getChild("queue_update").debug(queue)
         return {"queue": queue}
 
     @contextmanager
@@ -114,12 +145,9 @@ class PlaybackManager(BreezeBaseClass):
 
     def _load_(self, video: Video) -> None:
         self.logger.info(f"Loading {video} into memory")
-        audio = video.stream_data
-        with tempfile.NamedTemporaryFile() as tmp_file:
-            tmp_file.write(audio)
-            tmp_file.flush()
-            media = vlc.Media(tmp_file.name)
-            self.player.set_media(media)
+        self.logger.info(video.audio_url)
+        media = self.vlc_instance.media_new(video.audio_url)
+        self.player.set_media(media)
         self.logger.info(f"Loaded {video} into player")
 
     def set_song(self, video: Video) -> None:
@@ -128,6 +156,9 @@ class PlaybackManager(BreezeBaseClass):
 
     def set_song_url(self, url: str) -> None:
         self.set_song(Video(url))
+    
+    def set_volume(self, volume: int) -> None:
+        self.player.audio_set_volume(max(0, min(100, volume)))
 
     @property
     def _stop_(self) -> None:
@@ -135,17 +166,21 @@ class PlaybackManager(BreezeBaseClass):
         self.player.stop()
 
     @property
+    def is_playing(self) -> bool:
+        return self.player.is_playing()
+
+    @property
     def play(self) -> None:
         self.logger.info("Starting player")
         if self.is_playing:
-            self.logger.info("No song currently playing")
+            self.logger.info("Song already playing")
             return
         if not self.current_song:
             self.play_from_queue
         with self.song_error() as current_song:
             self.logger.info(f"Playing {current_song}")
             self.player.play()
-            self.is_playing = True
+        self.logger.info("Play request complete")
 
     @property
     def pause(self) -> None:
@@ -156,12 +191,13 @@ class PlaybackManager(BreezeBaseClass):
         with self.song_error() as current_song:
             self.logger.info(f"Pausing {current_song}")
             self.player.pause()
-            self.is_playing = False
+        self.logger.info("Pause request complete")
 
     def set_time(self, seconds: float) -> None:
         with self.song_error():
             self.logger.info(f"Skipping to {seconds}s")
             self.player.set_time(seconds * 1000)
+        self.logger.info("Skip request complete")
 
     @property
     def elapsed(self) -> float:
@@ -174,26 +210,45 @@ class PlaybackManager(BreezeBaseClass):
     @property
     def duration(self) -> float:
         if self.current_song:
-            duration = self.player.get_length() / 1000
+            duration = self.current_song.duration
             self.logger.info(f"Current song is {duration}s long")
             return duration
         return 0
 
     @property
+    def current_chapter(self) -> Chapter | None:
+        self.logger.info("Fetching current chapter.")
+        with self.song_error() as current_song:
+            current_time = self.elapsed
+            chapters = current_song.chapters
+            if not chapters:
+                self.logger.warn("Current song has no chapters.")
+                return None
+
+            previous_chapter = None
+            for chapter in chapters:
+                if chapter.time > current_time:
+                    return previous_chapter
+                previous_chapter = chapter
+        return None
+
+    @property
     def skip_next(self) -> None:
         with self.song_error() as current_song:
-            current_time = self.elapsed * 1000
+            current_time = self.elapsed
             chapters = current_song.chapters
             if not chapters:
                 self.logger.warn("Current song has no chapters.")
                 return
+        
+            self.logger.info(f"Skipping from {current_time} to next chapter")
 
             for chapter in chapters:
+                self.logger.debug
                 if chapter.time > current_time:
                     self.set_time(chapter.time)
-                    break
-            else:
-                self.skip_queue
+                    return
+            self.skip_queue
 
     @property
     def skip_prev(self) -> None:
@@ -205,14 +260,11 @@ class PlaybackManager(BreezeBaseClass):
                 self.logger.warn("Current song has no chapters.")
                 return
 
-            previous_chapter = 0
-            for chapter in chapters:
-                if chapter.time >= current_time:
-                    self.set_time(previous_chapter)
+            for chapter in chapters[::-1]:
+                # if we've just skipped back, skip to the previous
+                if chapter.time + 2 < current_time:
+                    self.set_time(chapter.time)
                     break
-                previous_chapter = chapter.time
-            else:
-                self.skip_queue
 
     @property
     def shift_queue(self) -> None:
@@ -270,10 +322,7 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def show_queue(self) -> list[dict[str, str]]:
-        return [
-            {k: v for k, v in video.to_dict.items() if k != "chapters"}
-            for video in self._queue_
-        ]
+        return [video.chapterless_dict for video in self._queue_]
 
     @property
     def show_current(self) -> dict[str, str]:

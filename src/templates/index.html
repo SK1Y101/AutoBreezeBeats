@@ -17,19 +17,22 @@
 
     <section class="main-content">
       <div class="video-section">
-        <div id="current-video" >
-          <h2>Now playing: << Current Song >></h2>
-          <div style="height:720px; width:1280px; background-color:red;"></div>
+        <div>
+          <h2 id="current-title"></h2>
+          <div class="thumbnail-container">
+            <img id="current-thumbnail" src="" style="height:720px; width:1280px; background-color: darkgrey;">
+            <div id="current-chapter" class="top-left"></div>
+          </div>
           <div class="playback-container">
             <progress id="progress" class="timeline-bar" value="0" max="100"></progress>
             <div class="controls">
               <span class="control-buttons">
-                <div id="elapsed-time">0:40</div> / <div id="total-time">1:40</div>
+                <div id="elapsed-time">0:00:00</div> / <div id="total-time">0:00:00</div>
               </span>
               <!-- ▶️⏩⏭️⏪⏸️ -->
-              <button class="control-button" id="skip-previous">⏪</button>
+              <button class="control-button" id="skip-previous" disabled>⏪</button>
               <button class="control-button center-button" id="play-pause">▶</button>
-              <button class="control-button" id="skip-next">⏩</button>
+              <button class="control-button" id="skip-next" disabled>⏩</button>
               <button class="control-button" id="skip-full">⏭️</button>
             </div>
           </div>

@@ -7,8 +7,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const progressElement = document.getElementById("progress");
     const queueList = document.getElementById("queue-list");
 
+    const currentTitle = document.getElementById("current-title");
+    const currentThumb = document.getElementById("current-thumbnail");
+    const currentChapter = document.getElementById("current-chapter");
+    const currentElapsed = document.getElementById("elapsed-time");
+    const currentDuration = document.getElementById("total-time");
+
     let socket = null;
     let isPlaying = false;
+    let chapterEnable = false;
 
     videoForm.addEventListener("submit", handleVideoFormSubmit);
     playPauseButton.addEventListener("click", handlePlayPause);
@@ -22,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function toTimeString(seconds) {
         var date = new Date(0);
-        date.setSeconds(seconds);
+        date.setSeconds(Math.max(0, seconds));
         var timeString = date.toISOString().substring(11, 19);
         return timeString;
     };
@@ -36,25 +43,32 @@ document.addEventListener("DOMContentLoaded", () => {
             method: "POST",
             body: formData,
         })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error("Network error when adding new video to queue!");
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log("Video queued successfully:", data);
-            })
-            .catch(error => {
-                console.error("Error adding video to queue:", error);
-            });
-    }
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Network error when adding new video to queue!");
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Video queued successfully:", data);
+        })
+        .catch(error => {
+            console.error("Error adding video to queue:", error);
+        });
+    };
 
     function handlePlayPause() {
         sendMessage(isPlaying ? "pause" : "play");
         isPlaying = !isPlaying;
         playPauseButton.textContent = isPlaying ? "⏸️" : "▶";
-    }
+    };
+
+    function setDisabled(elem, enable) {
+        const enabled = !elem.hasAttribute("disabled");
+        if ((enabled && !enable) || (!enabled && enable)) {
+            elem.toggleAttribute("disabled");
+        };
+    };
 
     function initializeWebSocket() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -72,33 +86,76 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.error("WebSocket connection closed unexpectedly.");
             }
         };
-    }
+    };
 
     function handleWebSocketMessage(event) {
         const message = JSON.parse(event.data);
 
-        if (message.progress !== undefined && message.duration !== undefined) {
-            const progress = message.progress;
+        if (message.elapsed !== undefined) {
+            currentElapsed.textContent = toTimeString(message.elapsed);
+        };
+
+        if (message.duration !== undefined) {
+            currentElapsed.textContent = toTimeString(message.duration);
+        };
+
+        if (message.elapsed !== undefined && message.duration !== undefined) {
+            const elapsed = message.elapsed;
             const duration = message.duration;
-            progressElement.value = (progress / duration) * 100;
-        }
+
+            currentElapsed.textContent = toTimeString(elapsed);
+            currentDuration.textContent = toTimeString(duration);
+
+            if (duration !== 0) {
+                progressElement.value = (elapsed / duration) * 100;
+            };
+            progressElement.value = 0;
+        };
+
+        if (message.current !== undefined) {
+            const current = message.current;
+            if (current === false) {
+                currentTitle.textContent = "Now playing: Nothing (Queue a video to start)";
+                currentThumb.src = "";
+            } else {
+                currentTitle.textContent = `Now playing: ${message.current.title}`;
+                currentThumb.src = message.current.thumbnail;
+            };
+        };
 
         if (message.queue !== undefined) {
             buildQueue(message.queue);
-        }
-    }
+        };
+
+        if (message.playing !== undefined) {
+            isPlaying = message.playing;
+            playPauseButton.textContent = isPlaying ? "⏸️" : "▶";
+        };
+
+        if (message.chapters !== undefined) {
+            chapterEnable = message.chapters;
+            setDisabled(skipPreviousButton, chapterEnable);
+            setDisabled(skipNextButton, chapterEnable);
+        };
+
+        if (message.current_chapter !== undefined) {
+            currentChapter.textContent = message.currentChapter;
+        } else {
+            currentChapter.textContent = "";
+        };
+    };
 
     function sendMessage(action) {
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(action);
         }
-    }
+    };
 
     function closeWebSocket() {
         if (socket) {
             socket.close();
         }
-    }
+    };
 
     function buildQueue(queue) {
         queueList.innerHTML = "";
@@ -131,5 +188,5 @@ document.addEventListener("DOMContentLoaded", () => {
             videoRow.appendChild(titleCol);
             queueList.appendChild(videoRow);
         };
-    }
+    };
 });
