@@ -83,7 +83,7 @@ class DeviceManager(BreezeBaseClass):
 
         notifier.register_callback(self.get_current_devices)
 
-    async def start(self, interval: float = 0.1) -> None:
+    async def start(self, interval: float = 2) -> None:
         if self.scanning_task and not self.scanning_task.done():
             self.logger.warn("Scanning task already active")
             return
@@ -92,7 +92,7 @@ class DeviceManager(BreezeBaseClass):
             self.scan_loop(interval), name="Scan for devices"
         )
 
-    async def scan_loop(self, interval: float = 0.1) -> None:
+    async def scan_loop(self, interval: float = 2) -> None:
         self.logger.info(f"Starting scan loop with interval {interval}s")
         try:
             while True:
@@ -190,7 +190,7 @@ class DeviceManager(BreezeBaseClass):
         for sink in self._sinks_:
             if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
-        self.logger.warn(f"Sink with address '{address}' not found.")
+        self.logger.debug(f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:

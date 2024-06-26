@@ -313,7 +313,7 @@ class PlaybackManager(BreezeBaseClass):
             self.pause
         self._stop_
         self.play_from_queue
-        if playing:
+        if playing and self.current_song:
             self.play
 
     def song_ended(self, event: vlc.EventType) -> None:
