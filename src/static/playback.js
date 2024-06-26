@@ -108,8 +108,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (duration !== 0) {
                 progressElement.value = (elapsed / duration) * 100;
+            } else {
+                progressElement.value = 0;
             };
-            progressElement.value = 0;
         };
 
         if (message.current !== undefined) {
@@ -140,10 +141,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (message.current_chapter !== undefined) {
             const chapter = message.current_chapter;
-            if (current === false) {
+            if (chapter === false) {
                 currentChapter.textContent = "";
             } else {
-                currentChapter.textContent = chapter;
+                currentChapter.textContent = chapter.title;
 
             };
         };

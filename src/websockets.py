@@ -41,14 +41,16 @@ class WebSocketManager(BreezeBaseClass):
 
         self.update_task: None | asyncio.Task = None
 
-    async def start(self, interval: int = 1) -> None:
+    async def start(self, interval: float = 0.1) -> None:
         if self.update_task and not self.update_task.done():
             self.logger.warn("Update task already active")
             return
         self.logger.info("Started update task")
-        self.update_task = asyncio.create_task(self.update_loop(interval), name="Send websocket data")
+        self.update_task = asyncio.create_task(
+            self.update_loop(interval), name="Send websocket data"
+        )
 
-    async def update_loop(self, interval: int = 1) -> None:
+    async def update_loop(self, interval: float = 0.1) -> None:
         self.update_interval = interval
         self.logger.info(f"Starting update loop with interval {interval}s")
         try:

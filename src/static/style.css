@@ -214,9 +214,10 @@ section h2 {
 }
 .top-left {
     position: absolute;
-    top: 8px;
-    left: 16px;
-  }
+    top: 0;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+}
 .timeline-bar {
     width: 100%;
     height: 40px;

@@ -49,8 +49,8 @@ playback_manager = PlaybackManager(log, ws_manager.notifier)
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ws_manager.start(0.5)
-    await device_manager.start(0.5)
+    await ws_manager.start()
+    await device_manager.start()
 
 
 @app.on_event("shutdown")
