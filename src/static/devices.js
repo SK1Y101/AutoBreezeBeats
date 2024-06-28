@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
     const deviceList = document.getElementById("device-list");
+    const weather = document.getElementById("weather");
 
     let socket = null;
 
@@ -36,6 +37,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (message.devices !== undefined) {
             buildDevices(message.devices);
+        }
+
+        // TODO: This is technically the wrong place, but I don't want to open another socket
+        if (message.weather !== undefined) {
+            weather.textContent = message.weather.summary;
         }
     };
 
