@@ -102,10 +102,10 @@ def save_data(filename: str, data: dict[str, Any]) -> None:
         yaml.safe_dump(data, f)
 
 
-def load_data(filename: str) -> Any:
+def load_data(filename: str, quiet: bool = False) -> Any:
     if os.path.exists(filename):
         with open(filename, "r") as f:
             return yaml.safe_load(f)
-    else:
+    elif not quiet:
         print(f"Could not load data from nonexistent file '{filename}'")
     return {}

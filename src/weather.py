@@ -126,6 +126,9 @@ class WeatherManager(BreezeBaseClass):
         self.playback_timeout = 20
 
         self.weather: Weather | None = None
+        self.song_mapping: dict[str, dict[str, str]] = {}
+
+        self.song_store = "stored_songs.yaml"
 
         self.get_config()
 
@@ -254,16 +257,22 @@ class WeatherManager(BreezeBaseClass):
                 lon = loc_dict["lon"]
         self.lat, self.lon = lat, lon
 
-        songs = load_data("stored_songs.yaml")["songs"]
-        self.song_mapping = {
-            song["song_url"]: {
-                "name": song["name"],
-                "weather": song["weather"],
-                "time": song["time"],
+        self.get_songs()
+    
+    def get_songs(self) -> None:
+        if song_config := load_data(self.song_store, quiet=True):
+            songs = song_config["songs"]
+            self.song_mapping = {
+                song["song_url"]: {
+                    "name": song["name"],
+                    "weather": song["weather"],
+                    "time": song["time"],
+                }
+                for song in songs
             }
-            for song in songs
-        }
-        self.log(self.logger.debug, "Loaded songs from store:", self.song_mapping)
+            self.log(self.logger.debug, "Loaded songs from store:", self.song_mapping)
+        else:
+            self.log(self.logger.debug, f"No songs defined in {self.song_store}!")
 
     def fetch_weather_from_api(self) -> None:
         if weather_dict := self.fetch_from_api(
@@ -303,6 +312,9 @@ class WeatherManager(BreezeBaseClass):
         If nothing exactly fits, only fit the weather.
         Otherwise, fit the time only.
         """
+        self.get_songs()
+        if not self.song_mapping:
+            return
 
         def index_of(value: str, enum: Type[Enum]) -> int:
             return [enum(e).value for e in enum].index(enum[value].value)
