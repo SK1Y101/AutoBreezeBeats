@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import timedelta
 
 # import rich
 import yaml
@@ -19,9 +20,10 @@ from .devices import (
 )
 from .host_device import get_device_details
 from .playback import PlaybackManager
+from .weather import ToggleAction, WeatherManager
 from .websockets import WebSocketManager
 
-application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
+application_details = {"title": "AutoBreezeBeats", "version": "0.3"}
 
 with open("src/logging_conf.yaml", "r") as f:
     logging_config = yaml.safe_load(f)
@@ -45,12 +47,15 @@ templates = Jinja2Templates(directory="src/templates")
 ws_manager = WebSocketManager(log)
 device_manager = DeviceManager(log, ws_manager.notifier)
 playback_manager = PlaybackManager(log, ws_manager.notifier)
+weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ws_manager.start(0.5)
-    await device_manager.start()
+    await device_manager.start(scanning_interval=timedelta(seconds=1))
+    await playback_manager.start(skipping_interval=timedelta(seconds=0.5))
+    await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
+    await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
 
 
 @app.on_event("shutdown")
@@ -116,20 +121,29 @@ async def load_video(url: str = Form(...)):
     return video.to_dict
 
 
+@app.post("/toggle-autoplay")
+async def toggle_autoplay(data: ToggleAction):
+    log.info("Request to toggle autoplay recieved")
+    if weather_manager.autoplaying:
+        weather_manager.autoplaying = False
+    else:
+        weather_manager.autoplaying = True
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     async for data in ws_manager.recieve_data(websocket):
         match data:
             case "play":
-                playback_manager.play
+                playback_manager.play()
             case "pause":
-                playback_manager.pause
+                playback_manager.pause()
             case "next_chapter":
-                playback_manager.skip_next
+                playback_manager.skip_next()
             case "prev_chapter":
-                playback_manager.skip_prev
+                playback_manager.skip_prev()
             case "next_video":
-                playback_manager.skip_queue
+                playback_manager.skip_queue()
             case _:
                 ws_manager.logger.warn(f"Unknown data {data}")
 

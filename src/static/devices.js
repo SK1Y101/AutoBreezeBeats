@@ -1,5 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
     const deviceList = document.getElementById("device-list");
+    const weather = document.getElementById("weather");
+    const autoplay = document.getElementById("autoplay");
+    const sinkReset = document.getElementById("reset-sink");
+
+    autoplay.addEventListener("click", autoPlayToggle);
+    sinkReset.addEventListener("click", setSink);
 
     let socket = null;
 
@@ -36,6 +42,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (message.devices !== undefined) {
             buildDevices(message.devices);
+        }
+
+        // TODO: This is technically the wrong place, but I don't want to open another socket
+        if (message.weather !== undefined) {
+            weather.textContent = message.weather.summary;
+        }
+
+        if (message.autoplay !== undefined) {
+            if (message.autoplay) {
+                autoplay.classList.add("connected");
+                autoplay.classList.remove("disconnected");
+            }
+            else {
+                autoplay.classList.add("disconnected");
+                autoplay.classList.remove("connected");
+            }
         }
     };
 
@@ -93,6 +115,23 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .catch(error => console.error("Could not set sink", error));
     }
+
+    async function autoPlayToggle() {
+        fetch("/toggle-autoplay", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ toggle: true }),
+        })
+            .then(response => {
+                console.log(response);
+                if (!response.ok) {
+                    console.error("Could not toggle autoplay")
+                }
+            })
+            .catch(error => console.error("Could not toggle autoplay", error));
+    };
 
     async function toggleDevice() {
         const addr = this.dataset.address;

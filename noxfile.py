@@ -120,3 +120,9 @@ def tests(session: nox.session) -> None:
         "-v",
     )
     session.run("coverage", "report", "-m")
+
+
+@nox.session
+def config(session: nox.session) -> None:
+    session.install("questionary", "pyyaml")
+    session.run("python", "utils/config.py")
