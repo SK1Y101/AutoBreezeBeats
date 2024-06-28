@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import timedelta
 
 # import rich
 import yaml
@@ -19,9 +20,10 @@ from .devices import (
 )
 from .host_device import get_device_details
 from .playback import PlaybackManager
+from .weather import WeatherManager
 from .websockets import WebSocketManager
 
-application_details = {"title": "AutoBreezeBeats", "version": "0.2"}
+application_details = {"title": "AutoBreezeBeats", "version": "0.3"}
 
 with open("src/logging_conf.yaml", "r") as f:
     logging_config = yaml.safe_load(f)
@@ -45,12 +47,14 @@ templates = Jinja2Templates(directory="src/templates")
 ws_manager = WebSocketManager(log)
 device_manager = DeviceManager(log, ws_manager.notifier)
 playback_manager = PlaybackManager(log, ws_manager.notifier)
+weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ws_manager.start(0.5)
-    await device_manager.start()
+    await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
+    await device_manager.start(scanning_interval=timedelta(seconds=1))
+    await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
 
 
 @app.on_event("shutdown")

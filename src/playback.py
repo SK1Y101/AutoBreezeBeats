@@ -20,6 +20,9 @@ class Chapter:
     def to_dict(self) -> dict[str, str | int]:
         return {"title": self.title, "time": self.time}
 
+    def __str__(self) -> str:
+        return f"<< Chapter {self.time} at {self.time} >>"
+
 
 class Video:
     def __init__(self, url: str) -> None:
@@ -27,7 +30,6 @@ class Video:
         self.title = "Unknown"
         self.duration = 0
         self.thumbnail = "Unknown"
-        self.audio_url = "Unknown"
         self.chapters: list[Chapter] = []
 
         self.current_chapter: int = 0
@@ -41,9 +43,15 @@ class Video:
                 self.title = info["title"]
                 self.duration = info["duration"]
                 self.thumbnail = info["thumbnail"]
-
-                self.audio_url = self.get_audio(info)
                 self.chapters = self.get_chapters(info)
+
+    @property
+    def audio_url(self) -> str:
+        """Ensure the audio url cannot expire."""
+        with yt_dlp.YoutubeDL({}) as ydl:
+            if info := ydl.extract_info(self.url, download=False):
+                return self.get_audio(info)
+        return "Unknown"
 
     def get_audio(self, info: dict[str, Any]) -> str:
         if audio_formats := [
@@ -147,16 +155,15 @@ class PlaybackManager(BreezeBaseClass):
             else:
                 raise BufferError("No song currently exists to play!")
         except Exception as e:
-            self.logger.error(f"Unexpected error: {e}")
+            self.log(self.logger.error, f"Unexpected error: {e}")
         finally:
             pass
 
     def _load_(self, video: Video) -> None:
-        self.logger.info(f"Loading {video} into memory")
-        self.logger.info(video.audio_url)
+        self.log(self.logger.info, f"Loading {video} into memory: ", video.audio_url)
         media = self.vlc_instance.media_new(video.audio_url)
         self.player.set_media(media)
-        self.logger.info(f"Loaded {video} into player")
+        self.log(self.logger.info, f"Loaded {video} into player")
 
     def set_song(self, video: Video) -> None:
         self._load_(video)
@@ -170,7 +177,7 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def _stop_(self) -> None:
-        self.logger.info("Halting player")
+        self.log(self.logger.info, "Halting player")
         self.player.stop()
 
     @property
@@ -179,39 +186,39 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def play(self) -> None:
-        self.logger.info("Starting player")
+        self.log(self.logger.info, "Starting player")
         if self.is_playing:
-            self.logger.info("Song already playing")
+            self.log(self.logger.info, "Song already playing")
             return
         if not self.current_song:
             self.play_from_queue
         with self.song_error() as current_song:
-            self.logger.info(f"Playing {current_song}")
+            self.log(self.logger.info, f"Playing {current_song}")
             self.player.play()
-        self.logger.info("Play request complete")
+        self.log(self.logger.info, "Play request complete")
 
     @property
     def pause(self) -> None:
-        self.logger.info("Stopping player")
+        self.log(self.logger.info, "Stopping player")
         if not self.is_playing:
-            self.logger.info("No song currently playing")
+            self.log(self.logger.info, "No song currently playing")
             return
         with self.song_error() as current_song:
-            self.logger.info(f"Pausing {current_song}")
+            self.log(self.logger.info, f"Pausing {current_song}")
             self.player.pause()
-        self.logger.info("Pause request complete")
+        self.log(self.logger.info, "Pause request complete")
 
     def set_time(self, seconds: float) -> None:
         with self.song_error():
-            self.logger.info(f"Skipping to {seconds}s")
+            self.log(self.logger.info, f"Skipping to {seconds}s")
             self.player.set_time(int(seconds * 1000))
-        self.logger.info("Skip request complete")
+        self.log(self.logger.info, "Skip request complete")
 
     @property
     def elapsed(self) -> float:
         if self.current_song:
             elapsed = self.player.get_time() / 1000
-            self.logger.debug(f"Currently at {elapsed}s")
+            self.log(self.logger.debug, f"Currently at {elapsed}s")
             return elapsed
         return 0
 
@@ -219,13 +226,13 @@ class PlaybackManager(BreezeBaseClass):
     def duration(self) -> float:
         if self.current_song:
             duration = self.current_song.duration
-            self.logger.debug(f"Current song is {duration}s long")
+            self.log(self.logger.debug, f"Current song is {duration}s long")
             return duration
         return 0
 
     @property
     def current_chapter(self) -> Chapter | None:
-        self.logger.debug("Fetching current chapter.")
+        self.log(self.logger.debug, "Fetching current chapter.")
         with self.song_error():
             if current_song := self.current_song:
                 if not current_song.chapters:
@@ -247,13 +254,13 @@ class PlaybackManager(BreezeBaseClass):
         if self.current_chapter and (current_song := self.current_song):
             next_idx = current_song.current_chapter + 1
             if next_idx > len(self.current_song.chapters):
-                self.logger.debug("On last chapter already, skipping")
+                self.log(self.logger.debug, "On last chapter already, skipping")
                 self.skip_queue
                 return
 
             next_chapter = current_song.chapters[next_idx]
 
-            self.logger.info(f"Skipping to {next_chapter.title}")
+            self.log(self.logger.info, f"Skipping to {next_chapter.title}")
             self.set_time(next_chapter.time)
 
     @property
@@ -266,40 +273,45 @@ class PlaybackManager(BreezeBaseClass):
             prev = current_song.chapters[prev_idx]
 
             if this.time + 2 > self.elapsed:
-                self.logger.info(
-                    f"Close to start of {this.title}, Skipping back to {prev.title}"
+                self.log(
+                    self.logger.info,
+                    f"Close to start of {this.title}, Skipping back to {prev.title}",
                 )
                 self.set_time(prev.time)
             else:
-                self.logger.info(f"Skipping back to the start of {this.title}")
+                self.log(
+                    self.logger.info, f"Skipping back to the start of {this.title}"
+                )
                 self.set_time(this.time)
 
     @property
     def shift_queue(self) -> None:
-        self.logger.debug("shifting queue")
+        self.log(self.logger.debug, "shifting queue")
         if self.current_song:
-            self.logger.info(
-                f"Song {self.current_song} already in queue, no shifting needed"
+            self.log(
+                self.logger.info,
+                f"Song {self.current_song} already in queue, no shifting needed",
             )
         else:
-            self.logger.info("No current song, checking queue")
+            self.log(self.logger.info, "No current song, checking queue")
             if self.queue.qsize() == 0:
-                self.logger.error("No song in queue!")
+                self.log(self.logger.error, "No song in queue!")
                 return
             video = self.queue.get()
             self.set_song(video)
 
-            msg = f"Updated current video: {video}"
+            msg = [f"Updated current video: {video}"]
             if self.queue.qsize() > 0:
-                msg += f"; queue: {self.list_queue}"
-            self.logger.info(msg)
-        self.logger.info("Shift complete")
+                msg.append("Current queue:")
+                msg.extend(self.queue.queue)
+            self.log(self.logger.info, *msg)
+        self.log(self.logger.info, "Shift complete")
 
     @property
     def play_from_queue(self) -> None:
-        self.logger.info("Playing next song from queue.")
+        self.log(self.logger.info, "Playing next song from queue.")
         if self.queue.qsize() == 0:
-            self.logger.error("No song in queue!")
+            self.log(self.logger.error, "No song in queue!")
             self.current_song = None
             return
         video = self.queue.get()
@@ -307,11 +319,11 @@ class PlaybackManager(BreezeBaseClass):
 
     @property
     def skip_queue(self) -> None:
-        self.logger.info("Skipping to next song in queue.")
+        self.log(self.logger.info, "Skipping to next song in queue.")
         playing = self.is_playing
-        if playing:
-            self.pause
-        self._stop_
+        # if playing:
+        #     self.pause
+        # self._stop_
         self.play_from_queue
         if playing and self.current_song:
             self.play
@@ -320,14 +332,14 @@ class PlaybackManager(BreezeBaseClass):
         self.skip_queue
 
     def queue_video(self, video: Video) -> Video:
-        self.logger.info(f"Adding {video} to queue.")
+        self.log(self.logger.info, f"Adding {video} to queue.")
         self.queue.put(video)
         self.shift_queue
-        self.logger.info(f"Video {video} added to queue.")
+        self.log(self.logger.info, f"Video {video} added to queue.")
         return video
 
     def queue_video_url(self, url: str) -> Video:
-        self.logger.info(f"Adding {url} to queue.")
+        self.log(self.logger.info, f"Adding {url} to queue.")
         video = Video(url)
         return self.queue_video(video)
 
