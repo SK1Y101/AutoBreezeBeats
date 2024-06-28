@@ -125,15 +125,15 @@ async def websocket_endpoint(websocket: WebSocket):
     async for data in ws_manager.recieve_data(websocket):
         match data:
             case "play":
-                playback_manager.play
+                playback_manager.play()
             case "pause":
-                playback_manager.pause
+                playback_manager.pause()
             case "next_chapter":
-                playback_manager.skip_next
+                playback_manager.skip_next()
             case "prev_chapter":
-                playback_manager.skip_prev
+                playback_manager.skip_prev()
             case "next_video":
-                playback_manager.skip_queue
+                playback_manager.skip_queue()
             case _:
                 ws_manager.logger.warn(f"Unknown data {data}")
 

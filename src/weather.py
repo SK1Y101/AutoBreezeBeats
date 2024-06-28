@@ -143,26 +143,28 @@ class WeatherManager(BreezeBaseClass):
 
     async def start(
         self,
-        auto_playback_interval: timedelta = DEFAULT_INTERVAL,
+        ausong_listingback_interval: timedelta = DEFAULT_INTERVAL,
         fetch_weather_interval: timedelta = DEFAULT_INTERVAL,
     ) -> None:
         await self.start_fetch_weather(fetch_weather_interval.total_seconds())
-        await self.automate_playback(auto_playback_interval.total_seconds())
+        await self.automate_playback(ausong_listingback_interval.total_seconds())
 
-    async def automate_playback(self, auto_playback_interval: float = 1) -> None:
+    async def automate_playback(self, ausong_listingback_interval: float = 1) -> None:
         if self.autoplay_task and not self.autoplay_task.done():
             self.log(self.logger.warn, "Auto Playback task already active")
             return
         self.log(self.logger.info, "Started auto playback")
         self.autoplay_task = asyncio.create_task(
-            self.playback_update_loop(auto_playback_interval),
+            self.playback_update_loop(ausong_listingback_interval),
             name="Playback automation",
         )
 
-    async def playback_update_loop(self, auto_playback_interval: float = 1) -> None:
+    async def playback_update_loop(
+        self, ausong_listingback_interval: float = 1
+    ) -> None:
         self.log(
             self.logger.info,
-            f"Starting autoplayback loop with interval {auto_playback_interval}s",
+            f"Starting autoplayback loop with interval {ausong_listingback_interval}s",
         )
         try:
             start_time = current_time()
@@ -185,7 +187,7 @@ class WeatherManager(BreezeBaseClass):
                         self.logger.debug,
                         f"Queue empty for {queue_time:.2f}s",
                     )
-                await asyncio.sleep(auto_playback_interval)
+                await asyncio.sleep(ausong_listingback_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "Autoplayback loop cancelled")
         except Exception as e:
@@ -298,37 +300,40 @@ class WeatherManager(BreezeBaseClass):
         time_idx = index_of(time_of_day, TimePeriod)
         weather_idx = index_of(type_of_weather, WeatherType)
 
-        ranking: dict[int, list[str]] = {}
+        ranking: dict[int, list[tuple[str, str]]] = {}
         for url, song in self.song_mapping.items():
+            this_song = (url, song["name"])
             # distance from current weather/time
             time_dist = distance_to(time_idx, song["time"], TimePeriod)
             weather_dist = distance_to(weather_idx, song["weather"], WeatherType)
             # prioritise correct weather over correct time
             rank = weather_dist * 10 + time_dist
             if rank in ranking:
-                ranking[rank].append(url)
+                ranking[rank].append(this_song)
             else:
-                ranking[rank] = [url]
+                ranking[rank] = [this_song]
 
         ranking = dict(sorted(ranking.items()))
         self.log(self.logger.debug, "Song rank:", ranking)
 
         shuffle_size = 5
 
-        to_play = ranking.get(0, [])
-        if not to_play:
+        song_listing = ranking.get(0, [])
+        rank_listing = [0] * len(song_listing)
+        if not song_listing:
             self.logger.debug(f"No songs perfectly match {weather.summary}")
         # ensure we have a couple of songs to shuffle
-        if len(to_play) < shuffle_size:
+        if len(song_listing) < shuffle_size:
             weathers = []
             for weather_type in list(WeatherType):
                 if weather_type.value not in weathers:
                     weathers.append(weather_type.value)
             skip = 10
             for _rank, songs in ranking.items():
-                if len(to_play) >= shuffle_size:
+                if len(song_listing) >= shuffle_size:
                     break
-                to_play.extend(songs)
+                song_listing.extend(songs)
+                rank_listing.extend([_rank] * len(songs))
                 if _rank >= skip:
                     upper = weather_idx + skip // 10
                     lower = weather_idx - skip // 10
@@ -343,11 +348,15 @@ class WeatherManager(BreezeBaseClass):
                     self.logger.debug(" ".join(msg))
                     skip += 10
 
-        self.log(self.logger.debug, f"Songs to shuffle for {weather.summary}", to_play)
-        chosen_song = random.choice(to_play)
+        self.log(
+            self.logger.debug, f"Songs to shuffle for {weather.summary}", song_listing
+        )
+        [(chosen_song_url, _)] = random.choices(
+            song_listing, [1 + max(rank_listing) - weight for weight in rank_listing]
+        )
 
         if self.playback_manager.current_song is None:
-            self.playback_manager.set_song_url(chosen_song)
+            self.playback_manager.set_song_url(chosen_song_url)
             self.playback_manager.play()
         else:
-            self.playback_manager.queue_video_url(chosen_song)
+            self.playback_manager.queue_video_url(chosen_song_url)
