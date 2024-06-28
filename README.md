@@ -33,7 +33,8 @@ and run the script
 $ nox -s run
 ```
 
-Simply navigate to $ip:8000, and you'll be met with the web interface,
+Simply navigate to [localhost:8000](http://localhost:8000/), and you'll be met with the web interface,
+(Replace localhost with the IP of the host device if connecting from a seperate machine to the one running AutoBreezeBeats)
 
 ## Developing
 
