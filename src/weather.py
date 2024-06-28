@@ -120,7 +120,7 @@ class WeatherManager(BreezeBaseClass):
         self.notifier = notifier
         self.weather_task: None | asyncio.Task = None
         self.autoplay_task: None | asyncio.Task = None
-        self.autoplaying: bool = False
+        self.autoplaying: bool = True
 
         self.playback_manager = playback_manager
         self.playback_timeout = 20
