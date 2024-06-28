@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from logging import Logger
 from typing import Any, AsyncGenerator, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .common import BreezeBaseClass
+from .common import DEFAULT_INTERVAL, BreezeBaseClass
 
 Updates = dict[str, Any]
 
@@ -20,11 +21,11 @@ class Notifier(BreezeBaseClass):
         self.callbacks: list[Callable[[], Updates]] = []
 
     def register_callback(self, callback: Callable[[], Updates]) -> None:
-        self.logger.info(f"Callback registered: {callback}")
+        self.log(self.logger.info, f"Callback registered: {callback}")
         self.callbacks.append(callback)
 
     def get_updates(self) -> list[Updates]:
-        self.logger.debug("Fetching websocket updates")
+        self.log(self.logger.debug, "Fetching websocket updates")
         updates = []
         for callback in self.callbacks:
             if update := callback():
@@ -41,43 +42,48 @@ class WebSocketManager(BreezeBaseClass):
 
         self.update_task: None | asyncio.Task = None
 
-    async def start(self, interval: float = 1) -> None:
+    async def start(self, websocket_interval: timedelta = DEFAULT_INTERVAL) -> None:
         if self.update_task and not self.update_task.done():
-            self.logger.warn("Update task already active")
+            self.log(self.logger.warn, "Update task already active")
             return
-        self.logger.info("Started update task")
+        self.log(self.logger.info, "Started update task")
         self.update_task = asyncio.create_task(
-            self.update_loop(interval), name="Send websocket data"
+            self.update_loop(websocket_interval.total_seconds()),
+            name="Send websocket data",
         )
 
-    async def update_loop(self, interval: float = 1) -> None:
-        self.update_interval = interval
-        self.logger.info(f"Starting update loop with interval {interval}s")
+    async def update_loop(self, websocket_interval: float = 1) -> None:
+        self.log(
+            self.logger.info,
+            f"Starting update loop with interval {websocket_interval}s",
+        )
         try:
             while True:
                 updates = self.notifier.get_updates()
-                self.logger.debug(f"Sending updates: {updates}")
+                self.log(self.logger.debug, "Sending updates:", *updates)
                 for update in updates:
                     await self.broadcast(update, self.logger.getChild("update_loop"))
-                self.logger.debug(f"Updates complete, waiting {interval}s")
-                await asyncio.sleep(interval)
+                self.log(
+                    self.logger.debug,
+                    f"Updates complete, waiting {websocket_interval}s",
+                )
+                await asyncio.sleep(websocket_interval)
         except asyncio.CancelledError:
-            self.logger.info("Update loop cancelled")
+            self.log(self.logger.info, "Update loop cancelled")
         except Exception as e:
-            self.logger.error(f"Error during update: {e}")
+            self.log(self.logger.error, f"Error during update: {e}")
 
     async def connect(self, websocket: WebSocket) -> None:
-        self.logger.info(f"Client connecting {websocket}")
+        self.log(self.logger.info, f"Client connecting {websocket}")
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket) -> None:
-        self.logger.info(f"Client disconnecting {websocket}")
+        self.log(self.logger.info, f"Client disconnecting {websocket}")
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict, logger: Logger | None = None) -> None:
-        (logger or self.logger).debug(f"Sending broadcast: {message}")
         for connection in self.active_connections:
             await connection.send_text(json.dumps(message))
 
@@ -85,7 +91,7 @@ class WebSocketManager(BreezeBaseClass):
         async with self.keep_connected(websocket):
             while True:
                 data = await websocket.receive_text()
-                self.logger.info(f"Recieved data '{data}'")
+                self.log(self.logger.info, f"Recieved data '{data}'")
                 yield data
                 await self.broadcast({"action": data})
 

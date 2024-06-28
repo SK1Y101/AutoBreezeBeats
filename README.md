@@ -18,7 +18,13 @@ install nox and pactl
 
 ```bash
 $ sudo apt install python3-nox
-$ sudo apt install pulseaudio pavucontrol
+$ sudo apt install pavucontrol
+```
+
+Create a configuration file
+
+```bash
+$ nox -s config
 ```
 
 and run the script
