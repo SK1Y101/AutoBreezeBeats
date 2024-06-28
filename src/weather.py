@@ -9,6 +9,7 @@ from logging import Logger
 from typing import Any, Optional, Type
 
 import requests
+from pydantic import BaseModel
 
 from .common import DEFAULT_INTERVAL, BreezeBaseClass, load_data
 from .playback import PlaybackManager
@@ -17,6 +18,10 @@ from .websockets import Notifier, Updates
 
 def current_time() -> datetime:
     return datetime.now(UTC)
+
+
+class ToggleAction(BaseModel):
+    toggle: bool = False
 
 
 class TimePeriod(Enum):
@@ -115,6 +120,7 @@ class WeatherManager(BreezeBaseClass):
         self.notifier = notifier
         self.weather_task: None | asyncio.Task = None
         self.autoplay_task: None | asyncio.Task = None
+        self.autoplaying: bool = False
 
         self.playback_manager = playback_manager
         self.playback_timeout = 20
@@ -134,6 +140,7 @@ class WeatherManager(BreezeBaseClass):
         )
 
         notifier.register_callback(self.get_current_weather)
+        notifier.register_callback(self.get_autoplay_status)
 
         self.log(
             self.logger.info,
@@ -143,28 +150,26 @@ class WeatherManager(BreezeBaseClass):
 
     async def start(
         self,
-        ausong_listingback_interval: timedelta = DEFAULT_INTERVAL,
+        weather_autoplay_interval: timedelta = DEFAULT_INTERVAL,
         fetch_weather_interval: timedelta = DEFAULT_INTERVAL,
     ) -> None:
         await self.start_fetch_weather(fetch_weather_interval.total_seconds())
-        await self.automate_playback(ausong_listingback_interval.total_seconds())
+        await self.automate_playback(weather_autoplay_interval.total_seconds())
 
-    async def automate_playback(self, ausong_listingback_interval: float = 1) -> None:
+    async def automate_playback(self, weather_autoplay_interval: float = 1) -> None:
         if self.autoplay_task and not self.autoplay_task.done():
             self.log(self.logger.warn, "Auto Playback task already active")
             return
         self.log(self.logger.info, "Started auto playback")
         self.autoplay_task = asyncio.create_task(
-            self.playback_update_loop(ausong_listingback_interval),
+            self.playback_update_loop(weather_autoplay_interval),
             name="Playback automation",
         )
 
-    async def playback_update_loop(
-        self, ausong_listingback_interval: float = 1
-    ) -> None:
+    async def playback_update_loop(self, weather_autoplay_interval: float = 1) -> None:
         self.log(
             self.logger.info,
-            f"Starting autoplayback loop with interval {ausong_listingback_interval}s",
+            f"Starting autoplayback loop with interval {weather_autoplay_interval}s",
         )
         try:
             start_time = current_time()
@@ -179,15 +184,19 @@ class WeatherManager(BreezeBaseClass):
                     )
                     self.queue_appropriate_song()
                     start_time = current_time()
+                if not self.autoplaying:
+                    start_time = current_time()
                 # Reset the timer if a song is in the queue
                 if self.playback_manager.queue.qsize() > 0:
                     start_time = current_time()
                 else:
-                    self.log(
-                        self.logger.debug,
-                        f"Queue empty for {queue_time:.2f}s",
+                    msg = (
+                        f"Queue empty for {queue_time:.2f}s"
+                        if self.autoplaying
+                        else "Autoplaying halted"
                     )
-                await asyncio.sleep(ausong_listingback_interval)
+                    self.log(self.logger.debug, msg)
+                await asyncio.sleep(weather_autoplay_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "Autoplayback loop cancelled")
         except Exception as e:
@@ -247,9 +256,14 @@ class WeatherManager(BreezeBaseClass):
 
         songs = load_data("stored_songs.yaml")["songs"]
         self.song_mapping = {
-            song["song_url"]: {"weather": song["weather"], "time": song["time"]}
+            song["song_url"]: {
+                "name": song["name"],
+                "weather": song["weather"],
+                "time": song["time"],
+            }
             for song in songs
         }
+        self.log(self.logger.debug, "Loaded songs from store:", self.song_mapping)
 
     def fetch_weather_from_api(self) -> None:
         if weather_dict := self.fetch_from_api(
@@ -278,16 +292,17 @@ class WeatherManager(BreezeBaseClass):
         log.debug("Sending default weather")
         return {"weather": self.default_weather.to_dict}
 
+    def get_autoplay_status(self) -> Updates:
+        log = self.logger.getChild("weather_update")
+        log.debug(self.autoplaying)
+        return {"autoplay": self.autoplaying}
+
     def queue_appropriate_song(self) -> None:
         """
         Determine all the songs that fit the weather/time.
         If nothing exactly fits, only fit the weather.
         Otherwise, fit the time only.
         """
-        weather = self.weather_now
-        type_of_weather = weather.type_of_weather.value
-        time_of_day = weather.time_of_day.value
-        self.log(self.logger.info, f"Queuing song for {weather.summary}")
 
         def index_of(value: str, enum: Type[Enum]) -> int:
             return [enum(e).value for e in enum].index(enum[value].value)
@@ -297,11 +312,25 @@ class WeatherManager(BreezeBaseClass):
                 return 0
             return min(abs(index_of(value, enum) - target) for value in values)
 
-        time_idx = index_of(time_of_day, TimePeriod)
-        weather_idx = index_of(type_of_weather, WeatherType)
+        weather = self.weather_now
+        weathers: list[str] = []
 
         ranking: dict[int, list[tuple[str, str]]] = {}
+        type_of_weather = weather.type_of_weather.value
+        time_of_day = weather.time_of_day.value
+        self.log(self.logger.info, f"Queuing song for {weather.summary}")
+
+        time_idx = index_of(time_of_day, TimePeriod)
+        weather_idx = index_of(type_of_weather, WeatherType)
+        for weather_type in list(WeatherType):
+            if weather_type.value not in weathers:
+                weathers.append(weather_type.value)
+
+        alread_queued = [video.url for video in self.playback_manager._whole_queue_]
         for url, song in self.song_mapping.items():
+            # don't queue songs that already exist
+            if url in alread_queued:
+                continue
             this_song = (url, song["name"])
             # distance from current weather/time
             time_dist = distance_to(time_idx, song["time"], TimePeriod)
@@ -316,37 +345,31 @@ class WeatherManager(BreezeBaseClass):
         ranking = dict(sorted(ranking.items()))
         self.log(self.logger.debug, "Song rank:", ranking)
 
-        shuffle_size = 5
-
-        song_listing = ranking.get(0, [])
-        rank_listing = [0] * len(song_listing)
-        if not song_listing:
+        if 0 not in ranking:
             self.logger.debug(f"No songs perfectly match {weather.summary}")
-        # ensure we have a couple of songs to shuffle
-        if len(song_listing) < shuffle_size:
-            weathers = []
-            for weather_type in list(WeatherType):
-                if weather_type.value not in weathers:
-                    weathers.append(weather_type.value)
-            skip = 10
-            for _rank, songs in ranking.items():
-                if len(song_listing) >= shuffle_size:
-                    break
-                song_listing.extend(songs)
-                rank_listing.extend([_rank] * len(songs))
-                if _rank >= skip:
-                    upper = weather_idx + skip // 10
-                    lower = weather_idx - skip // 10
 
-                    msg = ["Relaxing weather match to include"]
-                    if upper < len(weathers):
-                        msg += [weathers[upper]]
-                    if lower > 0:
-                        if len(msg) > 1:
-                            msg += ["and"]
-                        msg += [weathers[lower]]
-                    self.logger.debug(" ".join(msg))
-                    skip += 10
+        skip = 10
+        shuffle_size = 5
+        song_listing: list[tuple[str, str]] = []
+        rank_listing: list[int] = []
+        for _rank, songs in ranking.items():
+            if len(song_listing) >= shuffle_size:
+                break
+            song_listing.extend(songs)
+            rank_listing.extend([_rank] * len(songs))
+            if _rank >= skip:
+                upper = weather_idx + skip // 10
+                lower = weather_idx - skip // 10
+
+                msg = ["Relaxing weather match to include"]
+                if upper < len(weathers):
+                    msg += [weathers[upper]]
+                if lower > 0:
+                    if len(msg) > 1:
+                        msg += ["and"]
+                    msg += [weathers[lower]]
+                self.logger.debug(" ".join(msg))
+                skip += 10
 
         self.log(
             self.logger.debug, f"Songs to shuffle for {weather.summary}", song_listing

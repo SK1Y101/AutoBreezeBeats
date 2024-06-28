@@ -1,6 +1,8 @@
+import asyncio
 import queue
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from logging import Logger
 from typing import Any, Generator, Optional
 
@@ -101,8 +103,7 @@ class PlaybackManager(BreezeBaseClass):
         self._previous_volume_ = self.player.audio_get_volume()
         self.set_volume(100)
 
-        events = self.player.event_manager()
-        events.event_attach(vlc.EventType.MediaPlayerEndReached, self.song_ended)
+        self.skipping_task: None | asyncio.Task = None
 
         self.queue: queue.Queue[Video] = queue.Queue()
         self.current_song: Optional[Video] = None
@@ -110,9 +111,47 @@ class PlaybackManager(BreezeBaseClass):
         notifier.register_callback(self.get_current_song_update)
         notifier.register_callback(self.get_queue_update)
 
+    async def start(self, skipping_interval: timedelta) -> None:
+        await self.start_skipping_loop(skipping_interval.total_seconds())
+
+    async def start_skipping_loop(self, skipping_interval: float = 1) -> None:
+        if self.skipping_task and not self.skipping_task.done():
+            self.log(self.logger.warn, "playback skipping task already active")
+            return
+        self.log(self.logger.info, "Started playback skipping")
+        self.skipping_task = asyncio.create_task(
+            self.song_skipping_loop(skipping_interval),
+            name="Playback skipping",
+        )
+
+    async def song_skipping_loop(self, skipping_interval: float = 1) -> None:
+        self.log(
+            self.logger.info,
+            f"Starting playback skipping loop with interval {skipping_interval}s",
+        )
+        try:
+            while True:
+                if self.is_playing:
+                    if self.duration - self.elapsed < 3 * skipping_interval:
+                        self.logger.debug("Reached end of song, skipping.")
+                        self.skip_queue()
+                    else:
+                        self.logger.debug("Awaiting end of song.")
+                await asyncio.sleep(skipping_interval)
+        except asyncio.CancelledError:
+            self.log(self.logger.info, "playback skipping loop cancelled")
+        except Exception as e:
+            self.log(self.logger.error, f"Error during playback skipping: {e}")
+
     @property
     def _queue_(self) -> list[Video]:
         return self.queue.queue
+
+    @property
+    def _whole_queue_(self) -> list[Video]:
+        if self.current_song:
+            return [self.current_song] + list(self._queue_)
+        return list(self._queue_)
 
     @property
     def _all_(self) -> list[Video]:
@@ -305,6 +344,7 @@ class PlaybackManager(BreezeBaseClass):
         self.log(self.logger.info, "Playing next song from queue.")
         if self.queue.qsize() == 0:
             self.log(self.logger.error, "No song in queue!")
+            self._stop_()
             self.current_song = None
             return
         video = self.queue.get()
@@ -313,15 +353,11 @@ class PlaybackManager(BreezeBaseClass):
     def skip_queue(self) -> None:
         self.log(self.logger.info, "Skipping to next song in queue.")
         playing = self.is_playing
-        # if playing:
-        #     self.pause
-        # self._stop_
+        if playing:
+            self.pause()
         self.play_from_queue()
         if playing and self.current_song:
             self.play()
-
-    def song_ended(self, event: vlc.EventType) -> None:
-        self.skip_queue()
 
     def queue_video(self, video: Video) -> Video:
         self.log(self.logger.info, f"Adding {video} to queue.")

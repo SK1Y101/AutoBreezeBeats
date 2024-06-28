@@ -20,7 +20,7 @@ from .devices import (
 )
 from .host_device import get_device_details
 from .playback import PlaybackManager
-from .weather import WeatherManager
+from .weather import ToggleAction, WeatherManager
 from .websockets import WebSocketManager
 
 application_details = {"title": "AutoBreezeBeats", "version": "0.3"}
@@ -52,9 +52,10 @@ weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
     await device_manager.start(scanning_interval=timedelta(seconds=1))
+    await playback_manager.start(skipping_interval=timedelta(seconds=0.5))
     await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
+    await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
 
 
 @app.on_event("shutdown")
@@ -118,6 +119,15 @@ async def load_video(url: str = Form(...)):
     log.info(f"Request to add {url} recieved")
     video = playback_manager.queue_video_url(url)
     return video.to_dict
+
+
+@app.post("/toggle-autoplay")
+async def toggle_autoplay(data: ToggleAction):
+    log.info("Request to toggle autoplay recieved")
+    if weather_manager.autoplaying:
+        weather_manager.autoplaying = False
+    else:
+        weather_manager.autoplaying = True
 
 
 @app.websocket("/ws")
