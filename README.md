@@ -2,9 +2,17 @@
 
 Reinventing the radio, one bad line of code at a time.
 
-**[Releases](../../releases)**
+**[Releases](../../releases)** **[Report a bug or suggestion](https://github.com/SK1Y101/AutoBreezeBeats/issues/new/choose)**
+
+**[Road to 1.0](https://github.com/users/SK1Y101/projects/2)**
+**[Road beyond 1.0](https://github.com/users/SK1Y101/projects/3)**
 
 AutoBreezeBeats is a locally hosted, web accesible music player, leveraging the youtube API to stream video as audio to connected bluetooth devices.
+Pair ABB with a curated `stored_songs.yaml` and an [OpenWeatherMap api key](https://openweathermap.org/api) to queue thematically appropriate songs for the current weather and time!
+
+Note: Audio is **not** stored locally, ensure you have a decent connection!
+
+Use at own risk.
 
 ## Using the program
 
@@ -61,5 +69,7 @@ To remove everything temporary created by running a nox session, run `$ nox -s c
 ### Helping out:
 
 Pick up an issue, hack at the repo, even just fix a spelling mistake; be it backend, UI, or what-have-you, all contributions are welcome. Open a PR with your changes.
+
+You can also [Report a bug or suggestion](https://github.com/SK1Y101/AutoBreezeBeats/issues/new/choose) using the standard github ettiquette.
 
 An inexhaustitive roadmap for the project exists under [the project tab](https://github.com/users/SK1Y101/projects/2/views/2).
