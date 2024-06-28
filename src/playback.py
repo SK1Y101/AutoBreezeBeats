@@ -141,7 +141,7 @@ class PlaybackManager(BreezeBaseClass):
         return info
 
     def get_queue_update(self) -> Updates:
-        queue = self.show_queue
+        queue = self.queue_list
         self.logger.getChild("queue_update").debug(queue)
         return {"queue": queue}
 
@@ -149,7 +149,7 @@ class PlaybackManager(BreezeBaseClass):
     def song_error(self) -> Generator[Video, None, None]:
         try:
             if not self.current_song:
-                self.shift_queue
+                self.shift_queue()
             if self.current_song:
                 yield self.current_song
             else:
@@ -175,7 +175,6 @@ class PlaybackManager(BreezeBaseClass):
     def set_volume(self, volume: int) -> None:
         self.player.audio_set_volume(max(0, min(100, volume)))
 
-    @property
     def _stop_(self) -> None:
         self.log(self.logger.info, "Halting player")
         self.player.stop()
@@ -184,7 +183,6 @@ class PlaybackManager(BreezeBaseClass):
     def is_playing(self) -> bool:
         return self.player.is_playing()
 
-    @property
     def play(self) -> None:
         self.log(self.logger.info, "Starting player")
         if self.is_playing:
@@ -197,7 +195,6 @@ class PlaybackManager(BreezeBaseClass):
             self.player.play()
         self.log(self.logger.info, "Play request complete")
 
-    @property
     def pause(self) -> None:
         self.log(self.logger.info, "Stopping player")
         if not self.is_playing:
@@ -249,7 +246,6 @@ class PlaybackManager(BreezeBaseClass):
                         return this_chapter
         return None
 
-    @property
     def skip_next(self) -> None:
         if self.current_chapter and (current_song := self.current_song):
             next_idx = current_song.current_chapter + 1
@@ -263,7 +259,6 @@ class PlaybackManager(BreezeBaseClass):
             self.log(self.logger.info, f"Skipping to {next_chapter.title}")
             self.set_time(next_chapter.time)
 
-    @property
     def skip_prev(self) -> None:
         if self.current_chapter and (current_song := self.current_song):
             this_idx = current_song.current_chapter
@@ -284,7 +279,6 @@ class PlaybackManager(BreezeBaseClass):
                 )
                 self.set_time(this.time)
 
-    @property
     def shift_queue(self) -> None:
         self.log(self.logger.debug, "shifting queue")
         if self.current_song:
@@ -307,7 +301,6 @@ class PlaybackManager(BreezeBaseClass):
             self.log(self.logger.info, *msg)
         self.log(self.logger.info, "Shift complete")
 
-    @property
     def play_from_queue(self) -> None:
         self.log(self.logger.info, "Playing next song from queue.")
         if self.queue.qsize() == 0:
@@ -317,24 +310,23 @@ class PlaybackManager(BreezeBaseClass):
         video = self.queue.get()
         self.set_song(video)
 
-    @property
     def skip_queue(self) -> None:
         self.log(self.logger.info, "Skipping to next song in queue.")
         playing = self.is_playing
         # if playing:
         #     self.pause
         # self._stop_
-        self.play_from_queue
+        self.play_from_queue()
         if playing and self.current_song:
-            self.play
+            self.play()
 
     def song_ended(self, event: vlc.EventType) -> None:
-        self.skip_queue
+        self.skip_queue()
 
     def queue_video(self, video: Video) -> Video:
         self.log(self.logger.info, f"Adding {video} to queue.")
         self.queue.put(video)
-        self.shift_queue
+        self.shift_queue()
         self.log(self.logger.info, f"Video {video} added to queue.")
         return video
 
@@ -344,14 +336,14 @@ class PlaybackManager(BreezeBaseClass):
         return self.queue_video(video)
 
     @property
-    def list_queue(self) -> str:
+    def queue_str(self) -> str:
         return ", ".join((str(video) for video in self._queue_))
 
     @property
-    def show_queue(self) -> list[dict[str, str]]:
+    def queue_list(self) -> list[dict[str, str]]:
         return [video.chapterless_dict for video in self._queue_]
 
     @property
-    def show_current(self) -> dict[str, str]:
+    def current_song_dict(self) -> dict[str, str]:
         with self.song_error() as current_song:
             return current_song.to_dict
