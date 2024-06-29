@@ -51,15 +51,17 @@ def log(log_type: Callable[[Any], None], *msgs) -> None:
             if len(_out):
                 this_msg = f"{entry} {this_msg}"
             _out.append(this_msg)
-        out = "\n".join(_out)
-        out = out.replace("\n", f"\n{pipes} ").replace(f"{pipes} {entry}", entry)
-        if out.count("\n") > 0:
-            # format the end nicely
-            a, b = out.rsplit("\n", 1)
-            out = f"{a}\n{final}{b[1:]}"
-        log_type(out)
+        out = (
+            "\n".join(_out)
+            .replace("\n", f"\n{pipes} ")
+            .replace(f"{pipes} {entry}", entry)
+            .splitlines()
+        )
+        if len(out) > 1:
+            out[-1] = f"{final}{out[-1][1:]}"
+        for line in out:
+            log_type(line)
     except Exception as e:
-        print(msgs)
         getLogger("logging").error(f"Problem creating multi-line log: {e}")
 
 
