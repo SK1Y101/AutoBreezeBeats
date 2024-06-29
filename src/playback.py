@@ -98,10 +98,7 @@ class PlaybackManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("playback", parent_logger)
 
-        self.vlc_instance = vlc.Instance("--no-xlib")
-        self.player = self.vlc_instance.media_player_new()
-        self._previous_volume_ = self.player.audio_get_volume()
-        self.set_volume(100)
+        self._configure_vlc_()
 
         self.skipping_task: None | asyncio.Task = None
 
@@ -110,6 +107,26 @@ class PlaybackManager(BreezeBaseClass):
 
         notifier.register_callback(self.get_current_song_update)
         notifier.register_callback(self.get_queue_update)
+
+    def _configure_vlc_(self) -> None:
+        self.vlc_instance = vlc.Instance("--no-xlib")
+
+        self.player = self.vlc_instance.media_player_new()
+        self._previous_volume_ = self.player.audio_get_volume()
+        self.set_volume(100)
+
+        events = self.player.event_manager()
+        events.event_attach(
+            vlc.EventType.MediaPlayerEncounteredError, self.handle_vlc_event
+        )
+
+    def handle_vlc_event(self, event: vlc.Event) -> None:
+        if event.type == vlc.EventType.MediaPlayerEncounteredError:
+            self.log(
+                self.logger.error,
+                "VLC Experienced an error, skipping to next song in the queue",
+            )
+            self.skip_queue()
 
     async def start(self, skipping_interval: timedelta) -> None:
         await self.start_skipping_loop(skipping_interval.total_seconds())
