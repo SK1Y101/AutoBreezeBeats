@@ -82,7 +82,7 @@ class Device:
 class DeviceManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("devices", parent_logger)
-        self.filename = "connected_devices.json"
+        self.filename = "connected_devices.yaml"
 
         self.devices: list[Device] = []
         self.load_devices()

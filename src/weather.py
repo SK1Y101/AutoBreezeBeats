@@ -81,7 +81,7 @@ class Weather:
         elif now <= sunset - timedelta(minutes=30):
             return TimePeriod.day
         elif now <= sunset + timedelta(minutes=30):
-            return TimePeriod.night  # TimePeriod.dusk
+            return TimePeriod.evening  # TimePeriod.dusk
         elif now <= sunset + timedelta(hours=2):
             return TimePeriod.evening
         else:
@@ -123,10 +123,10 @@ class WeatherManager(BreezeBaseClass):
         self.autoplaying: bool = True
 
         self.playback_manager = playback_manager
-        self.playback_timeout = 20
+        self.playback_timeout = 10
 
         self.weather: Weather | None = None
-        self.song_mapping: dict[str, dict[str, str]] = {}
+        self.song_mapping: dict[str, dict[str, list[str]]] = {}
 
         self.song_store = "stored_songs.yaml"
 
@@ -185,7 +185,7 @@ class WeatherManager(BreezeBaseClass):
                         f"Queue empty time ({queue_time}) exceeds"
                         f" playback timeout ({self.playback_timeout}).",
                     )
-                    self.queue_appropriate_song()
+                    await self.queue_appropriate_song()
                     start_time = current_time()
                 if not self.autoplaying:
                     start_time = current_time()
@@ -258,7 +258,7 @@ class WeatherManager(BreezeBaseClass):
         self.lat, self.lon = lat, lon
 
         self.get_songs()
-    
+
     def get_songs(self) -> None:
         if song_config := load_data(self.song_store, quiet=True):
             songs = song_config["songs"]
@@ -302,11 +302,11 @@ class WeatherManager(BreezeBaseClass):
         return {"weather": self.default_weather.to_dict}
 
     def get_autoplay_status(self) -> Updates:
-        log = self.logger.getChild("weather_update")
-        log.debug(self.autoplaying)
-        return {"autoplay": self.autoplaying}
+        log = self.logger.getChild("autoplay_update")
+        log.debug(f"Autoplaying {self.autoplaying and bool(self.song_mapping)}")
+        return {"autoplay": self.autoplaying and bool(self.song_mapping)}
 
-    def queue_appropriate_song(self) -> None:
+    async def queue_appropriate_song(self) -> None:
         """
         Determine all the songs that fit the weather/time.
         If nothing exactly fits, only fit the weather.
@@ -343,7 +343,7 @@ class WeatherManager(BreezeBaseClass):
             # don't queue songs that already exist
             if url in alread_queued:
                 continue
-            this_song = (url, song["name"])
+            this_song = (url, str(song["name"]))
             # distance from current weather/time
             time_dist = distance_to(time_idx, song["time"], TimePeriod)
             weather_dist = distance_to(weather_idx, song["weather"], WeatherType)
