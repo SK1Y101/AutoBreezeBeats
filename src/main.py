@@ -23,7 +23,7 @@ from .playback import PlaybackManager
 from .weather import ToggleAction, WeatherManager
 from .websockets import WebSocketManager
 
-application_details = {"title": "AutoBreezeBeats", "version": "0.3"}
+application_details = {"title": "AutoBreezeBeats", "version": "0.4"}
 
 with open("src/logging_conf.yaml", "r") as f:
     logging_config = yaml.safe_load(f)
@@ -33,9 +33,7 @@ log = logging.getLogger(application_details["title"])
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*"
-    ],  # Adjust this to be more restrictive in a production environment
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,7 +150,7 @@ if __name__ == "__main__":
     import uvicorn
 
     try:
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_config=logging_config)
+        uvicorn.run(app, log_config=logging_config)
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
