@@ -10,7 +10,7 @@
     <header>
       <div class="title-bar">
         <h1><a href="https://github.com/SK1Y101/AutoBreezeBeats">{{ application.title }}</a> v{{ application.version }}</h1>
-        <h1 ><div id="datetime">13:14:89</div><div id="weather"></div></h1>
+        <h1 ><div id="datetime"></div><div id="weather"></div></h1>
         <h1>{{ host.name }} at {{ host.ip }}</h1>
       </div>
     </header>
@@ -78,8 +78,6 @@
       </div>
     </section>
 
-    <script src="/static/script.js"></script>
-    <script src="/static/devices.js"></script>
-    <script src="/static/playback.js"></script>
+    <script type="module" src="/static/_main.js"></script>
   </body>
 </html>

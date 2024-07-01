@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", () => {
+export function initialisePlayback(socket) {
     const videoForm = document.getElementById("VideoForm");
     const playPauseButton = document.getElementById("play-pause");
     const skipPreviousButton = document.getElementById("skip-previous");
@@ -13,7 +13,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentElapsed = document.getElementById("elapsed-time");
     const currentDuration = document.getElementById("total-time");
 
-    let socket = null;
     let isPlaying = false;
     let chapterEnable = false;
 
@@ -23,15 +22,70 @@ document.addEventListener("DOMContentLoaded", () => {
     skipNextButton.addEventListener("click", () => sendMessage("next_chapter"));
     skipFullButton.addEventListener("click", () => sendMessage("next_video"));
 
-    initializeWebSocket();
+    socket.addEventListener("message", handleWebSocketMessage);
 
-    window.addEventListener("unload", closeWebSocket);
+    function handleWebSocketMessage(event) {
+        const message = JSON.parse(event.data);
 
-    function toTimeString(seconds) {
-        var date = new Date(0);
-        date.setSeconds(Math.max(0, seconds));
-        var timeString = date.toISOString().substring(11, 19);
-        return timeString;
+        if (message.elapsed !== undefined) {
+            currentElapsed.textContent = toTimeString(message.elapsed);
+        };
+
+        if (message.duration !== undefined) {
+            currentElapsed.textContent = toTimeString(message.duration);
+        };
+
+        if (message.elapsed !== undefined && message.duration !== undefined) {
+            const elapsed = message.elapsed;
+            const duration = message.duration;
+
+            currentElapsed.textContent = toTimeString(elapsed);
+            currentDuration.textContent = toTimeString(duration);
+
+            if (duration !== 0) {
+                progressElement.value = (elapsed / duration) * 100;
+            }
+            else {
+                progressElement.value = 0;
+            };
+        };
+
+        if (message.current !== undefined) {
+            const current = message.current;
+            if (current === false) {
+                currentTitle.textContent = "Now playing: Nothing (Queue a video to start)";
+                currentThumb.src = "";
+            }
+            else {
+                currentTitle.textContent = `Now playing: ${message.current.title}`;
+                currentThumb.src = message.current.thumbnail;
+            };
+        };
+
+        if (message.queue !== undefined) {
+            buildQueue(message.queue);
+        };
+
+        if (message.playing !== undefined) {
+            isPlaying = message.playing;
+            playPauseButton.textContent = isPlaying ? "⏸️" : "▶";
+        };
+
+        if (message.chapters !== undefined) {
+            chapterEnable = message.chapters;
+            setDisabled(skipPreviousButton, chapterEnable);
+            setDisabled(skipNextButton, chapterEnable);
+        };
+
+        if (message.current_chapter !== undefined) {
+            const chapter = message.current_chapter;
+            if (chapter === false) {
+                currentChapter.textContent = "";
+            }
+            else {
+                currentChapter.textContent = chapter.title;
+            };
+        };
     };
 
     function handleVideoFormSubmit(event) {
@@ -70,102 +124,17 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     };
 
-    function initializeWebSocket() {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-        socket = new WebSocket(wsUrl);
-
-        socket.onopen = () => console.log("WebSocket connection established.");
-        socket.onmessage = handleWebSocketMessage;
-        socket.onerror = error => console.error("WebSocket error:", error);
-        socket.onclose = event => {
-            if (event.wasClean) {
-                console.log(`WebSocket connection closed cleanly, code=${event.code}, reason=${event.reason}`);
-            } else {
-                console.error("WebSocket connection closed unexpectedly.");
-            }
-        };
-    };
-
-    function handleWebSocketMessage(event) {
-        const message = JSON.parse(event.data);
-
-        if (message.elapsed !== undefined) {
-            currentElapsed.textContent = toTimeString(message.elapsed);
-        };
-
-        if (message.duration !== undefined) {
-            currentElapsed.textContent = toTimeString(message.duration);
-        };
-
-        if (message.elapsed !== undefined && message.duration !== undefined) {
-            const elapsed = message.elapsed;
-            const duration = message.duration;
-
-            currentElapsed.textContent = toTimeString(elapsed);
-            currentDuration.textContent = toTimeString(duration);
-
-            if (duration !== 0) {
-                progressElement.value = (elapsed / duration) * 100;
-            } else {
-                progressElement.value = 0;
-            };
-        };
-
-        if (message.current !== undefined) {
-            const current = message.current;
-            if (current === false) {
-                currentTitle.textContent = "Now playing: Nothing (Queue a video to start)";
-                currentThumb.src = "";
-            } else {
-                currentTitle.textContent = `Now playing: ${message.current.title}`;
-                currentThumb.src = message.current.thumbnail;
-            };
-        };
-
-        if (message.queue !== undefined) {
-            buildQueue(message.queue);
-        };
-
-        if (message.playing !== undefined) {
-            isPlaying = message.playing;
-            playPauseButton.textContent = isPlaying ? "⏸️" : "▶";
-        };
-
-        if (message.chapters !== undefined) {
-            chapterEnable = message.chapters;
-            setDisabled(skipPreviousButton, chapterEnable);
-            setDisabled(skipNextButton, chapterEnable);
-        };
-
-        if (message.current_chapter !== undefined) {
-            const chapter = message.current_chapter;
-            if (chapter === false) {
-                currentChapter.textContent = "";
-            } else {
-                currentChapter.textContent = chapter.title;
-
-            };
-        };
-    };
-
     function sendMessage(action) {
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(action);
-        }
-    };
-
-    function closeWebSocket() {
-        if (socket) {
-            socket.close();
-        }
+        };
     };
 
     function buildQueue(queue) {
+        const maxQueueLength = 9;
         queueList.innerHTML = "";
 
-        queue.slice(0,10).forEach(video => {
+        queue.slice(0, maxQueueLength).forEach(video => {
             const videoRow = document.createElement("tr");
 
             const thumbCol = document.createElement("td");
@@ -174,7 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             thumbnail.style = "height:72px; width:128px;";
             thumbnail.src = video.thumbnail;
-            titleCol.textContent = video.title + " ("+toTimeString(video.duration)+")";
+            titleCol.textContent = video.title + " (" + toTimeString(video.duration) + ")";
 
             thumbCol.appendChild(thumbnail);
             videoRow.appendChild(thumbCol);
@@ -182,16 +151,23 @@ document.addEventListener("DOMContentLoaded", () => {
             queueList.appendChild(videoRow);
         });
 
-        if (queue.length > 10) {
+        if (queue.length > maxQueueLength) {
             const videoRow = document.createElement("tr");
             const titleCol = document.createElement("td");
 
-            const len = queue.length - 10;
+            const len = queue.length - maxQueueLength;
             titleCol.textContent = `... Queue contains ${len} more item${len === 1 ? "" : "s"} ...`;
 
-            videoRow.appendChild( document.createElement("td"));
+            videoRow.appendChild(document.createElement("td"));
             videoRow.appendChild(titleCol);
             queueList.appendChild(videoRow);
         };
     };
-});
+
+    function toTimeString(seconds) {
+        var date = new Date(0);
+        date.setSeconds(Math.max(0, seconds));
+        var timeString = date.toISOString().substring(11, 19);
+        return timeString;
+    };
+};
