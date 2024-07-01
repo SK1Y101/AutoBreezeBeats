@@ -15,7 +15,16 @@ def run(session: nox.session) -> None:
         raise Exception(f"Install pavucontrol to use this program: {e}")
     session.install("-r", req_file)
     session.run(
-        "uvicorn", "src.main:app", "--reload", "--reload-dir", "src", external=True
+        "uvicorn",
+        "src.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "src",
+        external=True,
     )
 
 
