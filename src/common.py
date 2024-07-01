@@ -2,7 +2,7 @@ import os
 from datetime import timedelta
 from logging import Logger, getLogger
 from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import yaml
 
@@ -26,6 +26,41 @@ class BreezeBaseClass:
 
     def log(self, log_type: Callable[[Any], None], *msgs) -> None:
         log(log_type, *msgs)
+
+    def log_changed(
+        self,
+        log_type: Callable[[Any], None],
+        value_type: str,
+        new_values: Iterable[Any],
+        old_values: Iterable[Any],
+        log_new: bool = True,
+        log_old: bool = True,
+        new_message: str = "new",
+        old_message: str = "old",
+        expand: bool = True,
+    ) -> None:
+        """Log the difference bewteen two values."""
+
+        def a_without_b(a: Iterable[Any], b: Iterable[Any]) -> Iterable[Any]:
+            if isinstance(a, dict):
+                return {k: v for k, v in a.items() if k not in b}
+            return [v for v in a if v not in b]
+
+        if new_values != old_values:
+            if log_new and (new := a_without_b(new_values, old_values)):
+                value_name = str(value_type) + ("s" if len(list(new)) > 1 else "")
+                self.log(
+                    log_type,
+                    f"{new_message.strip()} {value_name.strip()}".capitalize(),
+                    *new if expand else new,
+                )
+            if log_old and (old := a_without_b(old_values, new_values)):
+                value_name = str(value_type) + ("s" if len(list(old)) > 1 else "")
+                self.log(
+                    log_type,
+                    f"{old_message.strip()} {value_name.strip()}".capitalize(),
+                    *old if expand else old,
+                )
 
     def run(self, cmd: list[str], capture: bool = False, quiet: bool = False) -> str:
         return run(

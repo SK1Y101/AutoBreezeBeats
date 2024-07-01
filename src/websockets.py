@@ -25,7 +25,7 @@ class Notifier(BreezeBaseClass):
         self.callbacks.append(callback)
 
     def get_updates(self) -> list[Updates]:
-        self.log(self.logger.debug, "Fetching websocket updates")
+        self.log(self.logger.debug, "<< Fetching websocket updates >>")
         updates = []
         for callback in self.callbacks:
             if update := callback():
@@ -57,8 +57,8 @@ class WebSocketManager(BreezeBaseClass):
             self.logger.info,
             f"Starting update loop with interval {websocket_interval}s",
         )
-        try:
-            while True:
+        while True:
+            try:
                 updates = self.notifier.get_updates()
                 self.log(self.logger.debug, "Sending updates:", *updates)
                 for update in updates:
@@ -68,10 +68,11 @@ class WebSocketManager(BreezeBaseClass):
                     f"Updates complete, waiting {websocket_interval}s",
                 )
                 await asyncio.sleep(websocket_interval)
-        except asyncio.CancelledError:
-            self.log(self.logger.info, "Update loop cancelled")
-        except Exception as e:
-            self.log(self.logger.error, f"Error during update: {e}")
+            except asyncio.CancelledError:
+                self.log(self.logger.info, "Update loop cancelled")
+                break
+            except Exception as e:
+                self.log(self.logger.error, f"Error during update: {e}")
 
     async def connect(self, websocket: WebSocket) -> None:
         self.log(self.logger.info, f"Client connecting {websocket}")
