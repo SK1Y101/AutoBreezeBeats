@@ -36,11 +36,13 @@ class Video:
 
         self.current_chapter: int = 0
 
+        self.ydl_opts = {"no_warnings": True, "noplaylist": True}
+
         self.get_info()
 
     def get_info(self) -> None:
         self.chapters = []
-        with yt_dlp.YoutubeDL({}) as ydl:
+        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
             if info := ydl.extract_info(self.url, download=False):
                 self.title = info["title"]
                 self.duration = info["duration"]
@@ -50,7 +52,7 @@ class Video:
     @property
     def audio_url(self) -> str:
         """Ensure the audio url cannot expire."""
-        with yt_dlp.YoutubeDL({}) as ydl:
+        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
             if info := ydl.extract_info(self.url, download=False):
                 return self.get_audio(info)
         return "Unknown"
@@ -178,7 +180,6 @@ class PlaybackManager(BreezeBaseClass):
         return songs
 
     def get_current_song_update(self) -> Updates:
-        self.logger.getChild("song_update").debug(self.current_song)
         info = {
             "playing": self.is_playing,
             "elapsed": self.elapsed,
@@ -188,6 +189,7 @@ class PlaybackManager(BreezeBaseClass):
             "current_chapter": False,
         }
         if self.current_song:
+            self.logger.getChild("song_update").debug(self.current_song)
             info["current"] = (
                 self.current_song.chapterless_dict  # type:ignore [assignment]
             )
@@ -198,7 +200,8 @@ class PlaybackManager(BreezeBaseClass):
 
     def get_queue_update(self) -> Updates:
         queue = self.queue_list
-        self.logger.getChild("queue_update").debug(queue)
+        if queue:
+            self.logger.getChild("queue_update").debug(queue)
         return {"queue": queue}
 
     @contextmanager
@@ -271,7 +274,6 @@ class PlaybackManager(BreezeBaseClass):
     def elapsed(self) -> float:
         if self.current_song:
             elapsed = self.player.get_time() / 1000
-            self.log(self.logger.debug, f"Currently at {elapsed}s")
             return elapsed
         return 0
 
@@ -279,7 +281,6 @@ class PlaybackManager(BreezeBaseClass):
     def duration(self) -> float:
         if self.current_song:
             duration = self.current_song.duration
-            self.log(self.logger.debug, f"Current song is {duration}s long")
             return duration
         return 0
 
