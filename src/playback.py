@@ -1,5 +1,4 @@
 import asyncio
-import concurrent.futures
 import queue
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -237,17 +236,8 @@ class PlaybackManager(BreezeBaseClass):
         finally:
             pass
 
-    def _get_audio_url_(self, video: Video) -> str:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(video.audio_url)
-            try:
-                return future.result(timeout=10)
-            except concurrent.futures.TimeoutError:
-                self.logger.error("Timed out downloading video, skipping!")
-            return ""
-
     def _load_(self, video: Video) -> None:
-        if audio_url := self._get_audio_url_(video):
+        if audio_url := self.run_with_timeout(video.audio_url):
             self.log(self.logger.info, f"Loading {video} into memory: ", audio_url)
             media = self.vlc_instance.media_new(audio_url)
             self.player.set_media(media)

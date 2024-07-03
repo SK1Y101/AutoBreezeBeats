@@ -1,10 +1,12 @@
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Any, Callable, Iterable
 
 import yaml
+from retry import retry
 
 DEFAULT_INTERVAL = timedelta(seconds=1)
 
@@ -19,6 +21,41 @@ class BreezeBaseClass:
         self.logger = (
             parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
         )
+
+    def run_with_timeout(
+        self,
+        func: Callable,
+        *args: Any,
+        timeout: float = 10,
+        raise_on_error: bool = True,
+        **kwargs,
+    ) -> Any | None:
+
+        @retry(tries=3, delay=1)
+        def _retry_() -> Any:
+            with ThreadPoolExecutor() as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    result = future.result(timeout=timeout)
+                    return result
+                except TimeoutError:
+                    self.logger.error(
+                        f"Timeout: {func.__name__} timed out after {timeout} seconds"
+                    )
+                    raise
+                except Exception as e:
+                    self.logger.error(
+                        f"Error: {func.__name__} raised an exception: {e}"
+                    )
+                    if raise_on_error:
+                        raise
+
+        try:
+            return _retry_()
+        except TimeoutError:
+            # We don't allow timeout errors to halt execution
+            pass
+        return None
 
     @property
     def logger(self) -> Logger:
