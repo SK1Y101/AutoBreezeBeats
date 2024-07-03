@@ -51,7 +51,7 @@ weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 @app.on_event("startup")
 async def startup() -> None:
     await device_manager.start(scanning_interval=timedelta(seconds=1))
-    await playback_manager.start(skipping_interval=timedelta(seconds=0.5))
+    await playback_manager.start(skipping_interval=timedelta(seconds=0.25))
     await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
     await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
 

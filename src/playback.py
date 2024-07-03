@@ -161,7 +161,7 @@ class PlaybackManager(BreezeBaseClass):
             skip_time = current_time()
             while True:
                 if self.is_playing:
-                    if self.duration - self.elapsed <= skipping_interval:
+                    if self.duration - self.elapsed <= 1.0:
                         self.logger.debug("Reached end of song, skipping.")
                         self.skip_queue()
 
