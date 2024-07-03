@@ -21,9 +21,6 @@ def run(session: nox.session) -> None:
         "0.0.0.0",
         "--port",
         "8000",
-        "--reload",
-        "--reload-dir",
-        "src",
         external=True,
     )
 

@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Any, Callable, Iterable
@@ -7,6 +7,10 @@ from typing import Any, Callable, Iterable
 import yaml
 
 DEFAULT_INTERVAL = timedelta(seconds=1)
+
+
+def current_time() -> datetime:
+    return datetime.now(UTC)
 
 
 class BreezeBaseClass:

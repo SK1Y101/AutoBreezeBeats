@@ -150,14 +150,17 @@ if __name__ == "__main__":
     import uvicorn
 
     try:
-        uvicorn.run(app, log_config=logging_config)
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_config=logging_config)
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
+        log.info(f"Setting volume to {playback_manager._previous_volume_}")
         playback_manager.set_volume(playback_manager._previous_volume_)
         tasks = asyncio.all_tasks()
         for task in tasks:
+            log.info(f"Cancelling {task.get_name()}")
             task.cancel()
         asyncio.get_event_loop().run_until_complete(
             asyncio.gather(*tasks, return_exceptions=True)
         )
+        log.info(f"Closing {application_details['name']}")

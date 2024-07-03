@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import queue
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ from typing import Any, Generator, Optional
 import vlc
 import yt_dlp
 
-from .common import BreezeBaseClass
+from .common import BreezeBaseClass, current_time
 from .websockets import Notifier, Updates
 
 
@@ -49,7 +50,6 @@ class Video:
                 self.thumbnail = info["thumbnail"]
                 self.chapters = self.get_chapters(info)
 
-    @property
     def audio_url(self) -> str:
         """Ensure the audio url cannot expire."""
         with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
@@ -121,6 +121,7 @@ class PlaybackManager(BreezeBaseClass):
         events.event_attach(
             vlc.EventType.MediaPlayerEncounteredError, self.handle_vlc_event
         )
+        events.event_attach(vlc.EventType.MediaPlayerEndReached, self.handle_vlc_event)
 
     def handle_vlc_event(self, event: vlc.Event) -> None:
         if event.type == vlc.EventType.MediaPlayerEncounteredError:
@@ -129,6 +130,13 @@ class PlaybackManager(BreezeBaseClass):
                 "VLC Experienced an error, skipping to next song in the queue",
             )
             self.skip_queue()
+        if event.type == vlc.EventType.MediaPlayerEndReached:
+            self.log(
+                self.logger.warn, "Reached end of song without triggering skipping loop"
+            )
+            self.skip_queue()
+            if self.current_song:
+                self.play()
 
     async def start(self, skipping_interval: timedelta) -> None:
         await self.start_skipping_loop(skipping_interval.total_seconds())
@@ -149,13 +157,24 @@ class PlaybackManager(BreezeBaseClass):
             f"Starting playback skipping loop with interval {skipping_interval}s",
         )
         try:
+            elapsed = 0.0
+            skip_time = current_time()
             while True:
                 if self.is_playing:
-                    if self.duration - self.elapsed < 3 * skipping_interval:
+                    if self.duration - self.elapsed <= skipping_interval:
                         self.logger.debug("Reached end of song, skipping.")
                         self.skip_queue()
-                    else:
-                        self.logger.debug("Awaiting end of song.")
+
+                    if self.elapsed != elapsed:
+                        skip_time = current_time()
+
+                    stuck_length = (current_time() - skip_time).total_seconds()
+
+                    if stuck_length > 10:
+                        self.logger.debug("Song stuck for 10s, skipping")
+                        self.skip_queue()
+
+                elapsed = self.elapsed
                 await asyncio.sleep(skipping_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "playback skipping loop cancelled")
@@ -218,11 +237,23 @@ class PlaybackManager(BreezeBaseClass):
         finally:
             pass
 
+    def _get_audio_url_(self, video: Video) -> str:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(video.audio_url)
+            try:
+                return future.result(timeout=10)
+            except concurrent.futures.TimeoutError:
+                self.logger.error("Timed out downloading video, skipping!")
+            return ""
+
     def _load_(self, video: Video) -> None:
-        self.log(self.logger.info, f"Loading {video} into memory: ", video.audio_url)
-        media = self.vlc_instance.media_new(video.audio_url)
-        self.player.set_media(media)
-        self.log(self.logger.info, f"Loaded {video} into player")
+        if audio_url := self._get_audio_url_(video):
+            self.log(self.logger.info, f"Loading {video} into memory: ", audio_url)
+            media = self.vlc_instance.media_new(audio_url)
+            self.player.set_media(media)
+            self.log(self.logger.info, f"Loaded {video} into player")
+        else:
+            self.skip_queue()
 
     def set_song(self, video: Video) -> None:
         self._load_(video)

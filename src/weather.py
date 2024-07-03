@@ -11,13 +11,9 @@ from typing import Any, Optional, Type
 import requests
 from pydantic import BaseModel
 
-from .common import DEFAULT_INTERVAL, BreezeBaseClass, load_data
+from .common import DEFAULT_INTERVAL, BreezeBaseClass, current_time, load_data
 from .playback import PlaybackManager
 from .websockets import Notifier, Updates
-
-
-def current_time() -> datetime:
-    return datetime.now(UTC)
 
 
 class ToggleAction(BaseModel):
@@ -179,11 +175,8 @@ class WeatherManager(BreezeBaseClass):
         )
         try:
             start_time = current_time()
-            stuck_time = current_time()
-            elapsed = 0.0
             while True:
                 queue_time = (current_time() - start_time).total_seconds()
-                _stuck_len = (current_time() - stuck_time).total_seconds()
 
                 # if it's been empty for the timeout length, queue a song
                 if queue_time > self.playback_timeout:
@@ -198,18 +191,6 @@ class WeatherManager(BreezeBaseClass):
                 if not self.autoplaying:
                     start_time = current_time()
 
-                if self.playback_manager.is_playing:
-                    if self.playback_manager.elapsed > elapsed:
-                        stuck_time = current_time()
-                else:
-                    stuck_time = current_time()
-                if (
-                    _stuck_len > self.playback_timeout
-                    and self.playback_manager.queue.qsize() > 0
-                ):
-                    self.playback_manager.skip_queue()
-                    stuck_time = current_time()
-
                 # Reset the timer if a song is in the queue
                 if self.playback_manager.queue.qsize() >= self.auto_queue_length:
                     start_time = current_time()
@@ -220,8 +201,6 @@ class WeatherManager(BreezeBaseClass):
                         else "Autoplaying halted"
                     )
                     self.log(self.logger.debug, msg)
-
-                elapsed = self.playback_manager.elapsed
                 await asyncio.sleep(weather_autoplay_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "Autoplayback loop cancelled")
