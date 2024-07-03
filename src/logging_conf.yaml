@@ -3,6 +3,8 @@ disable_existing_loggers: false
 formatters:
   default:
     format: '%(name)s: %(message)s'
+  timed_logger:
+    format: '[%(asctime)s] %(name)s: %(message)s'
 handlers:
   console:
     class: rich.logging.RichHandler
@@ -11,7 +13,7 @@ handlers:
   file:
     class: logging.FileHandler
     filename: application.log
-    formatter: default
+    formatter: timed_logger
     level: DEBUG
 root:
   handlers: [console, file]

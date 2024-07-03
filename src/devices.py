@@ -82,7 +82,7 @@ class Device:
 class DeviceManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("devices", parent_logger)
-        self.filename = "connected_devices.json"
+        self.filename = "connected_devices.yaml"
 
         self.devices: list[Device] = []
         self.load_devices()
@@ -90,6 +90,7 @@ class DeviceManager(BreezeBaseClass):
 
         self.scanning_task: None | asyncio.Task = None
 
+        self._prev_devices_: list[dict[str, Any]] = []
         notifier.register_callback(self.get_current_devices)
 
     async def start(self, scanning_interval: timedelta = DEFAULT_INTERVAL) -> None:
@@ -111,13 +112,17 @@ class DeviceManager(BreezeBaseClass):
                     ["bluetoothctl", "--timeout", str(scanning_interval), "scan", "on"],
                     quiet=True,
                 )
-                devices = self._found_devices()
-                if devices != self.devices:
-                    if new_devices := [d for d in devices if d not in self.devices]:
-                        self.log(self.logger.debug, "New devices found:", *new_devices)
-                    if old_devices := [d for d in self.devices if d not in devices]:
-                        self.log(self.logger.debug, "Devices dropped:", *old_devices)
-                self.devices = devices
+                new_devices = self._found_devices()
+                self.log_changed(
+                    self.logger.debug,
+                    value_type="device",
+                    new_values=new_devices,
+                    old_values=self.devices,
+                    new_message="discovered",
+                    old_message="lost",
+                )
+                self.devices = new_devices
+
                 await asyncio.sleep(scanning_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "Scan loop cancelled")
@@ -158,7 +163,13 @@ class DeviceManager(BreezeBaseClass):
 
     def get_current_devices(self) -> Updates:
         devices = self.list_devices
-        self.log(self.logger.getChild("device_update").debug, *devices)
+        self.log_changed(
+            self.logger.getChild("device_update").debug,
+            "device",
+            devices,
+            self._prev_devices_,
+        )
+        self._prev_devices_ = devices
         return {"devices": devices}
 
     @property
@@ -205,14 +216,12 @@ class DeviceManager(BreezeBaseClass):
                 name=name,
                 active=active.lower() != "suspended",
             )
-            self.log(self.logger.debug, f"Found sink {sink}")
             yield sink
 
     def _sink_info_(self, address: str) -> Sink | None:
         for sink in self._sinks_:
             if address.lower().replace(":", "_") in sink.name.lower():
                 return sink
-        self.log(self.logger.debug, f"Sink with address '{address}' not found.")
         return None
 
     def set_sink(self, address: str) -> bool:
