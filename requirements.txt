@@ -1,7 +1,9 @@
 fastapi
 python-vlc
+retry
 rich
 types-PyYAML
 types-requests
+types-retry
 uvicorn
 yt-dlp

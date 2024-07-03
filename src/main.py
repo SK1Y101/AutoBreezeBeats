@@ -23,7 +23,10 @@ from .playback import PlaybackManager
 from .weather import ToggleAction, WeatherManager
 from .websockets import WebSocketManager
 
-application_details = {"title": "AutoBreezeBeats", "version": "0.3"}
+application_details = {"title": "AutoBreezeBeats", "version": "0.4"}
+initial_settings = {
+    "volume": 50
+}
 
 with open("src/logging_conf.yaml", "r") as f:
     logging_config = yaml.safe_load(f)
@@ -33,9 +36,7 @@ log = logging.getLogger(application_details["title"])
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*"
-    ],  # Adjust this to be more restrictive in a production environment
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,9 +54,11 @@ weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 @app.on_event("startup")
 async def startup() -> None:
     await device_manager.start(scanning_interval=timedelta(seconds=1))
-    await playback_manager.start(skipping_interval=timedelta(seconds=0.5))
+    await playback_manager.start(skipping_interval=timedelta(seconds=0.25))
     await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
     await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
+
+    playback_manager.set_volume(initial_settings.get("volume", 50))
 
 
 @app.on_event("shutdown")
@@ -71,6 +74,7 @@ async def index(request: Request) -> HTMLResponse:
             "request": request,
             "application": application_details,
             "host": get_device_details(),
+            "initial_settings": initial_settings,
         },
     )
 
@@ -145,21 +149,27 @@ async def websocket_endpoint(websocket: WebSocket):
             case "next_video":
                 playback_manager.skip_queue()
             case _:
-                ws_manager.logger.warn(f"Unknown data {data}")
+                if data.startswith("volume:"):
+                    playback_manager.set_volume(int(data.split(":")[1]))
+                else:
+                    ws_manager.logger.warn(f"Unknown data {data}")
 
 
 if __name__ == "__main__":
     import uvicorn
 
     try:
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_config=logging_config)
+        uvicorn.run(app, log_config=logging_config)
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
+        log.info(f"Setting volume to {playback_manager._previous_volume_}")
         playback_manager.set_volume(playback_manager._previous_volume_)
         tasks = asyncio.all_tasks()
         for task in tasks:
+            log.info(f"Cancelling {task.get_name()}")
             task.cancel()
         asyncio.get_event_loop().run_until_complete(
             asyncio.gather(*tasks, return_exceptions=True)
         )
+        log.info(f"Closing {application_details['name']}")

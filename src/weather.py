@@ -11,13 +11,9 @@ from typing import Any, Optional, Type
 import requests
 from pydantic import BaseModel
 
-from .common import DEFAULT_INTERVAL, BreezeBaseClass, load_data
+from .common import DEFAULT_INTERVAL, BreezeBaseClass, current_time, load_data
 from .playback import PlaybackManager
 from .websockets import Notifier, Updates
-
-
-def current_time() -> datetime:
-    return datetime.now(UTC)
 
 
 class ToggleAction(BaseModel):
@@ -81,7 +77,7 @@ class Weather:
         elif now <= sunset - timedelta(minutes=30):
             return TimePeriod.day
         elif now <= sunset + timedelta(minutes=30):
-            return TimePeriod.night  # TimePeriod.dusk
+            return TimePeriod.evening  # TimePeriod.dusk
         elif now <= sunset + timedelta(hours=2):
             return TimePeriod.evening
         else:
@@ -120,13 +116,16 @@ class WeatherManager(BreezeBaseClass):
         self.notifier = notifier
         self.weather_task: None | asyncio.Task = None
         self.autoplay_task: None | asyncio.Task = None
+
         self.autoplaying: bool = True
+        self.shuffle_sample_size = 5
+        self.auto_queue_length = 4
 
         self.playback_manager = playback_manager
-        self.playback_timeout = 20
+        self.playback_timeout = 10
 
         self.weather: Weather | None = None
-        self.song_mapping: dict[str, dict[str, str]] = {}
+        self.song_mapping: dict[str, dict[str, list[str]]] = {}
 
         self.song_store = "stored_songs.yaml"
 
@@ -178,6 +177,7 @@ class WeatherManager(BreezeBaseClass):
             start_time = current_time()
             while True:
                 queue_time = (current_time() - start_time).total_seconds()
+
                 # if it's been empty for the timeout length, queue a song
                 if queue_time > self.playback_timeout:
                     self.log(
@@ -185,16 +185,18 @@ class WeatherManager(BreezeBaseClass):
                         f"Queue empty time ({queue_time}) exceeds"
                         f" playback timeout ({self.playback_timeout}).",
                     )
-                    self.queue_appropriate_song()
+                    await self.queue_appropriate_song()
                     start_time = current_time()
+
                 if not self.autoplaying:
                     start_time = current_time()
+
                 # Reset the timer if a song is in the queue
-                if self.playback_manager.queue.qsize() > 0:
+                if self.playback_manager.queue.qsize() >= self.auto_queue_length:
                     start_time = current_time()
                 else:
                     msg = (
-                        f"Queue empty for {queue_time:.2f}s"
+                        f"Queue shorter than wanted for {queue_time:.2f}s"
                         if self.autoplaying
                         else "Autoplaying halted"
                     )
@@ -258,8 +260,8 @@ class WeatherManager(BreezeBaseClass):
         self.lat, self.lon = lat, lon
 
         self.get_songs()
-    
-    def get_songs(self) -> None:
+
+    def get_songs(self, quiet: bool = False) -> None:
         if song_config := load_data(self.song_store, quiet=True):
             songs = song_config["songs"]
             self.song_mapping = {
@@ -269,8 +271,12 @@ class WeatherManager(BreezeBaseClass):
                     "time": song["time"],
                 }
                 for song in songs
+                if song.get("song_url", None)
             }
-            self.log(self.logger.debug, "Loaded songs from store:", self.song_mapping)
+            if not quiet:
+                self.log(
+                    self.logger.debug, "Loaded songs from store:", self.song_mapping
+                )
         else:
             self.log(self.logger.debug, f"No songs defined in {self.song_store}!")
 
@@ -302,17 +308,17 @@ class WeatherManager(BreezeBaseClass):
         return {"weather": self.default_weather.to_dict}
 
     def get_autoplay_status(self) -> Updates:
-        log = self.logger.getChild("weather_update")
-        log.debug(self.autoplaying)
-        return {"autoplay": self.autoplaying}
+        log = self.logger.getChild("autoplay_update")
+        log.debug(f"Autoplaying {self.autoplaying and bool(self.song_mapping)}")
+        return {"autoplay": self.autoplaying and bool(self.song_mapping)}
 
-    def queue_appropriate_song(self) -> None:
+    async def queue_appropriate_song(self) -> None:
         """
         Determine all the songs that fit the weather/time.
         If nothing exactly fits, only fit the weather.
         Otherwise, fit the time only.
         """
-        self.get_songs()
+        self.get_songs(quiet=True)
         if not self.song_mapping:
             return
 
@@ -327,7 +333,7 @@ class WeatherManager(BreezeBaseClass):
         weather = self.weather_now
         weathers: list[str] = []
 
-        ranking: dict[int, list[tuple[str, str]]] = {}
+        ranking: dict[int, list[list[str]]] = {}
         type_of_weather = weather.type_of_weather.value
         time_of_day = weather.time_of_day.value
         self.log(self.logger.info, f"Queuing song for {weather.summary}")
@@ -343,7 +349,7 @@ class WeatherManager(BreezeBaseClass):
             # don't queue songs that already exist
             if url in alread_queued:
                 continue
-            this_song = (url, song["name"])
+            this_song = [url, str(song["name"])]
             # distance from current weather/time
             time_dist = distance_to(time_idx, song["time"], TimePeriod)
             weather_dist = distance_to(weather_idx, song["weather"], WeatherType)
@@ -355,17 +361,15 @@ class WeatherManager(BreezeBaseClass):
                 ranking[rank] = [this_song]
 
         ranking = dict(sorted(ranking.items()))
-        self.log(self.logger.debug, "Song rank:", ranking)
 
         if 0 not in ranking:
             self.logger.debug(f"No songs perfectly match {weather.summary}")
 
         skip = 10
-        shuffle_size = 5
-        song_listing: list[tuple[str, str]] = []
+        song_listing: list[list[str]] = []
         rank_listing: list[int] = []
         for _rank, songs in ranking.items():
-            if len(song_listing) >= shuffle_size:
+            if len(song_listing) >= self.shuffle_sample_size:
                 break
             song_listing.extend(songs)
             rank_listing.extend([_rank] * len(songs))
@@ -384,9 +388,9 @@ class WeatherManager(BreezeBaseClass):
                 skip += 10
 
         self.log(
-            self.logger.debug, f"Songs to shuffle for {weather.summary}", song_listing
+            self.logger.debug, f"Songs to shuffle for {weather.summary}", *song_listing
         )
-        [(chosen_song_url, _)] = random.choices(
+        [[chosen_song_url, _]] = random.choices(
             song_listing, [1 + max(rank_listing) - weight for weight in rank_listing]
         )
 

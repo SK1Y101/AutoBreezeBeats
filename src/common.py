@@ -1,12 +1,18 @@
 import os
-from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import yaml
+from retry import retry
 
 DEFAULT_INTERVAL = timedelta(seconds=1)
+
+
+def current_time() -> datetime:
+    return datetime.now(UTC)
 
 
 class BreezeBaseClass:
@@ -15,6 +21,41 @@ class BreezeBaseClass:
         self.logger = (
             parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
         )
+
+    def run_with_timeout(
+        self,
+        func: Callable,
+        *args: Any,
+        timeout: float = 10,
+        raise_on_error: bool = True,
+        **kwargs,
+    ) -> Any | None:
+
+        @retry(tries=3, delay=1)
+        def _retry_() -> Any:
+            with ThreadPoolExecutor() as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    result = future.result(timeout=timeout)
+                    return result
+                except TimeoutError:
+                    self.logger.error(
+                        f"Timeout: {func.__name__} timed out after {timeout} seconds"
+                    )
+                    raise
+                except Exception as e:
+                    self.logger.error(
+                        f"Error: {func.__name__} raised an exception: {e}"
+                    )
+                    if raise_on_error:
+                        raise
+
+        try:
+            return _retry_()
+        except TimeoutError:
+            # We don't allow timeout errors to halt execution
+            pass
+        return None
 
     @property
     def logger(self) -> Logger:
@@ -26,6 +67,41 @@ class BreezeBaseClass:
 
     def log(self, log_type: Callable[[Any], None], *msgs) -> None:
         log(log_type, *msgs)
+
+    def log_changed(
+        self,
+        log_type: Callable[[Any], None],
+        value_type: str,
+        new_values: Iterable[Any],
+        old_values: Iterable[Any],
+        log_new: bool = True,
+        log_old: bool = True,
+        new_message: str = "new",
+        old_message: str = "old",
+        expand: bool = True,
+    ) -> None:
+        """Log the difference bewteen two values."""
+
+        def a_without_b(a: Iterable[Any], b: Iterable[Any]) -> Iterable[Any]:
+            if isinstance(a, dict):
+                return {k: v for k, v in a.items() if k not in b}
+            return [v for v in a if v not in b]
+
+        if new_values != old_values:
+            if log_new and (new := a_without_b(new_values, old_values)):
+                value_name = str(value_type) + ("s" if len(list(new)) > 1 else "")
+                self.log(
+                    log_type,
+                    f"{new_message.strip()} {value_name.strip()}".capitalize(),
+                    *new if expand else new,
+                )
+            if log_old and (old := a_without_b(old_values, new_values)):
+                value_name = str(value_type) + ("s" if len(list(old)) > 1 else "")
+                self.log(
+                    log_type,
+                    f"{old_message.strip()} {value_name.strip()}".capitalize(),
+                    *old if expand else old,
+                )
 
     def run(self, cmd: list[str], capture: bool = False, quiet: bool = False) -> str:
         return run(
@@ -51,15 +127,17 @@ def log(log_type: Callable[[Any], None], *msgs) -> None:
             if len(_out):
                 this_msg = f"{entry} {this_msg}"
             _out.append(this_msg)
-        out = "\n".join(_out)
-        out = out.replace("\n", f"\n{pipes} ").replace(f"{pipes} {entry}", entry)
-        if out.count("\n") > 0:
-            # format the end nicely
-            a, b = out.rsplit("\n", 1)
-            out = f"{a}\n{final}{b[1:]}"
-        log_type(out)
+        out = (
+            "\n".join(_out)
+            .replace("\n", f"\n{pipes} ")
+            .replace(f"{pipes} {entry}", entry)
+            .splitlines()
+        )
+        if len(out) > 1:
+            out[-1] = f"{final}{out[-1][1:]}"
+        for line in out:
+            log_type(line)
     except Exception as e:
-        print(msgs)
         getLogger("logging").error(f"Problem creating multi-line log: {e}")
 
 

@@ -8,6 +8,7 @@ from logging import Logger
 from typing import Any, AsyncGenerator, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosed
 
 from .common import DEFAULT_INTERVAL, BreezeBaseClass
 
@@ -25,7 +26,7 @@ class Notifier(BreezeBaseClass):
         self.callbacks.append(callback)
 
     def get_updates(self) -> list[Updates]:
-        self.log(self.logger.debug, "Fetching websocket updates")
+        self.log(self.logger.debug, "<< Fetching websocket updates >>")
         updates = []
         for callback in self.callbacks:
             if update := callback():
@@ -57,8 +58,8 @@ class WebSocketManager(BreezeBaseClass):
             self.logger.info,
             f"Starting update loop with interval {websocket_interval}s",
         )
-        try:
-            while True:
+        while True:
+            try:
                 updates = self.notifier.get_updates()
                 self.log(self.logger.debug, "Sending updates:", *updates)
                 for update in updates:
@@ -68,10 +69,11 @@ class WebSocketManager(BreezeBaseClass):
                     f"Updates complete, waiting {websocket_interval}s",
                 )
                 await asyncio.sleep(websocket_interval)
-        except asyncio.CancelledError:
-            self.log(self.logger.info, "Update loop cancelled")
-        except Exception as e:
-            self.log(self.logger.error, f"Error during update: {e}")
+            except asyncio.CancelledError:
+                self.log(self.logger.info, "Update loop cancelled")
+                break
+            except Exception as e:
+                self.log(self.logger.error, f"Error during update: {e}")
 
     async def connect(self, websocket: WebSocket) -> None:
         self.log(self.logger.info, f"Client connecting {websocket}")
@@ -85,7 +87,11 @@ class WebSocketManager(BreezeBaseClass):
 
     async def broadcast(self, message: dict, logger: Logger | None = None) -> None:
         for connection in self.active_connections:
-            await connection.send_text(json.dumps(message))
+            try:
+                await connection.send_text(json.dumps(message))
+            except (WebSocketDisconnect, ConnectionClosed):
+                self.logger.warn(f"{connection} seems to have disconnected!")
+                self.disconnect(connection)
 
     async def recieve_data(self, websocket: WebSocket) -> AsyncGenerator[Any, None]:
         async with self.keep_connected(websocket):
@@ -100,5 +106,5 @@ class WebSocketManager(BreezeBaseClass):
         await self.connect(websocket)
         try:
             yield
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, ConnectionClosed):
             self.disconnect(websocket)

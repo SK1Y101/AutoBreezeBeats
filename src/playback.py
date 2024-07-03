@@ -9,7 +9,7 @@ from typing import Any, Generator, Optional
 import vlc
 import yt_dlp
 
-from .common import BreezeBaseClass
+from .common import BreezeBaseClass, current_time
 from .websockets import Notifier, Updates
 
 
@@ -36,21 +36,22 @@ class Video:
 
         self.current_chapter: int = 0
 
+        self.ydl_opts = {"no_warnings": True, "noplaylist": True}
+
         self.get_info()
 
     def get_info(self) -> None:
         self.chapters = []
-        with yt_dlp.YoutubeDL({}) as ydl:
+        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
             if info := ydl.extract_info(self.url, download=False):
                 self.title = info["title"]
                 self.duration = info["duration"]
                 self.thumbnail = info["thumbnail"]
                 self.chapters = self.get_chapters(info)
 
-    @property
     def audio_url(self) -> str:
         """Ensure the audio url cannot expire."""
-        with yt_dlp.YoutubeDL({}) as ydl:
+        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
             if info := ydl.extract_info(self.url, download=False):
                 return self.get_audio(info)
         return "Unknown"
@@ -98,10 +99,7 @@ class PlaybackManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("playback", parent_logger)
 
-        self.vlc_instance = vlc.Instance("--no-xlib")
-        self.player = self.vlc_instance.media_player_new()
-        self._previous_volume_ = self.player.audio_get_volume()
-        self.set_volume(100)
+        self._configure_vlc_()
 
         self.skipping_task: None | asyncio.Task = None
 
@@ -110,6 +108,35 @@ class PlaybackManager(BreezeBaseClass):
 
         notifier.register_callback(self.get_current_song_update)
         notifier.register_callback(self.get_queue_update)
+
+    def _configure_vlc_(self) -> None:
+        self.vlc_instance = vlc.Instance("--no-xlib")
+
+        self.player = self.vlc_instance.media_player_new()
+        self._previous_volume_ = self.volume
+        self._volume_ = 0
+        self.set_volume(100)
+
+        events = self.player.event_manager()
+        events.event_attach(
+            vlc.EventType.MediaPlayerEncounteredError, self.handle_vlc_event
+        )
+        events.event_attach(vlc.EventType.MediaPlayerEndReached, self.handle_vlc_event)
+
+    def handle_vlc_event(self, event: vlc.Event) -> None:
+        if event.type == vlc.EventType.MediaPlayerEncounteredError:
+            self.log(
+                self.logger.error,
+                "VLC Experienced an error, skipping to next song in the queue",
+            )
+            self.skip_queue()
+        if event.type == vlc.EventType.MediaPlayerEndReached:
+            self.log(
+                self.logger.warn, "Reached end of song without triggering skipping loop"
+            )
+            self.skip_queue()
+            if self.current_song:
+                self.play()
 
     async def start(self, skipping_interval: timedelta) -> None:
         await self.start_skipping_loop(skipping_interval.total_seconds())
@@ -130,13 +157,24 @@ class PlaybackManager(BreezeBaseClass):
             f"Starting playback skipping loop with interval {skipping_interval}s",
         )
         try:
+            elapsed = 0.0
+            skip_time = current_time()
             while True:
                 if self.is_playing:
-                    if self.duration - self.elapsed < 3 * skipping_interval:
+                    if self.duration - self.elapsed <= 1.0:
                         self.logger.debug("Reached end of song, skipping.")
                         self.skip_queue()
-                    else:
-                        self.logger.debug("Awaiting end of song.")
+
+                    if self.elapsed != elapsed:
+                        skip_time = current_time()
+
+                    stuck_length = (current_time() - skip_time).total_seconds()
+
+                    if stuck_length > 10:
+                        self.logger.debug("Song stuck for 10s, skipping")
+                        self.skip_queue()
+
+                elapsed = self.elapsed
                 await asyncio.sleep(skipping_interval)
         except asyncio.CancelledError:
             self.log(self.logger.info, "playback skipping loop cancelled")
@@ -161,7 +199,6 @@ class PlaybackManager(BreezeBaseClass):
         return songs
 
     def get_current_song_update(self) -> Updates:
-        self.logger.getChild("song_update").debug(self.current_song)
         info = {
             "playing": self.is_playing,
             "elapsed": self.elapsed,
@@ -171,17 +208,22 @@ class PlaybackManager(BreezeBaseClass):
             "current_chapter": False,
         }
         if self.current_song:
+            self.logger.getChild("song_update").debug(self.current_song)
             info["current"] = (
                 self.current_song.chapterless_dict  # type:ignore [assignment]
             )
             info["chapters"] = self.current_song.chapters != []
             if chapter := self.current_chapter:
                 info["current_chapter"] = chapter.to_dict  # type:ignore [assignment]
+        if (vol := self.volume) and vol != self._volume_:
+            info["volume"] = vol
+            self._volume_ = vol
         return info
 
     def get_queue_update(self) -> Updates:
         queue = self.queue_list
-        self.logger.getChild("queue_update").debug(queue)
+        if queue:
+            self.logger.getChild("queue_update").debug(queue)
         return {"queue": queue}
 
     @contextmanager
@@ -199,10 +241,13 @@ class PlaybackManager(BreezeBaseClass):
             pass
 
     def _load_(self, video: Video) -> None:
-        self.log(self.logger.info, f"Loading {video} into memory: ", video.audio_url)
-        media = self.vlc_instance.media_new(video.audio_url)
-        self.player.set_media(media)
-        self.log(self.logger.info, f"Loaded {video} into player")
+        if audio_url := self.run_with_timeout(video.audio_url):
+            self.log(self.logger.info, f"Loading {video} into memory: ", audio_url)
+            if media := self.run_with_timeout(self.vlc_instance.media_new, audio_url):
+                self.run_with_timeout(self.player.set_media, media)
+                self.log(self.logger.info, f"Loaded {video} into player")
+                return None
+        self.skip_queue()
 
     def set_song(self, video: Video) -> None:
         self._load_(video)
@@ -210,6 +255,10 @@ class PlaybackManager(BreezeBaseClass):
 
     def set_song_url(self, url: str) -> None:
         self.set_song(Video(url))
+
+    @property
+    def volume(self) -> int:
+        return self.player.audio_get_volume()
 
     def set_volume(self, volume: int) -> None:
         self.player.audio_set_volume(max(0, min(100, volume)))
@@ -254,7 +303,6 @@ class PlaybackManager(BreezeBaseClass):
     def elapsed(self) -> float:
         if self.current_song:
             elapsed = self.player.get_time() / 1000
-            self.log(self.logger.debug, f"Currently at {elapsed}s")
             return elapsed
         return 0
 
@@ -262,7 +310,6 @@ class PlaybackManager(BreezeBaseClass):
     def duration(self) -> float:
         if self.current_song:
             duration = self.current_song.duration
-            self.log(self.logger.debug, f"Current song is {duration}s long")
             return duration
         return 0
 
@@ -344,7 +391,7 @@ class PlaybackManager(BreezeBaseClass):
         self.log(self.logger.info, "Playing next song from queue.")
         if self.queue.qsize() == 0:
             self.log(self.logger.error, "No song in queue!")
-            self._stop_()
+            self.run_with_timeout(self._stop_, timeout=2, raise_on_error=False)
             self.current_song = None
             return
         video = self.queue.get()
