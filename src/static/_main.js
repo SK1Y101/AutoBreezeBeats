@@ -23,9 +23,12 @@ document.addEventListener("DOMContentLoaded", () => {
     initialiseDevices(socket);
     initialisePlayback(socket);
 
-    window.addEventListener("unload", () => {
+    closeSocket = function() {
         if (socket) {
             socket.close();
-        }
-    });
+        };
+    }
+
+    window.addEventListener("unload", closeSocket);
+    window.addEventListener("beforeunload", closeSocket);
 });

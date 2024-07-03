@@ -6,6 +6,8 @@ export function initialisePlayback(socket) {
     const skipFullButton = document.getElementById("skip-full");
     const progressElement = document.getElementById("progress");
     const queueList = document.getElementById("queue-list");
+    const volumeSlider = document.getElementById("volumeSlider");
+    const volumeValue = document.getElementById("volumeValue");
 
     const currentTitle = document.getElementById("current-title");
     const currentThumb = document.getElementById("current-thumbnail");
@@ -15,6 +17,8 @@ export function initialisePlayback(socket) {
 
     let isPlaying = false;
     let chapterEnable = false;
+
+    let debounceTimeout;
 
     videoForm.addEventListener("submit", handleVideoFormSubmit);
     playPauseButton.addEventListener("click", handlePlayPause);
@@ -86,6 +90,11 @@ export function initialisePlayback(socket) {
                 currentChapter.textContent = chapter.title;
             };
         };
+
+        if (message.volume !== undefined) {
+            volumeSlider.value = message.volume;
+            volumeValue.textContent = message.volume;
+        }
     };
 
     function handleVideoFormSubmit(event) {
@@ -170,4 +179,31 @@ export function initialisePlayback(socket) {
         var timeString = date.toISOString().substring(11, 19);
         return timeString;
     };
+
+    const debounce = (func, delay) => {
+        return function () {
+            const context = this;
+            const args = arguments;
+            clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(() => func.apply(context, args), delay);
+        };
+    };
+
+    const updateVolumeUI = () => {
+        const volume = volumeSlider.value;
+        volumeValue.innerText = volume;
+    };
+
+    const sendVolume = () => {
+        const volume = volumeSlider.value;
+        sendMessage(`volume:${volume}`);
+    };
+
+    volumeSlider.addEventListener('input', function () {
+        updateVolumeUI();
+        debounce(sendVolume, 100)();
+    });
+
+    updateVolumeUI();
+    sendVolume();
 };

@@ -30,6 +30,8 @@
                 <div id="elapsed-time">0:00:00</div> / <div id="total-time">0:00:00</div>
               </span>
               <!-- ▶️⏩⏭️⏪⏸️ -->
+              <span id="volumeValue">{{ initial_settings.volume }}</span>
+              <input type="range" id="volumeSlider" min="0" max="100" value="{{ initial_settings.volume }}">
               <button class="control-button" id="skip-previous" disabled>⏪</button>
               <button class="control-button center-button" id="play-pause">▶</button>
               <button class="control-button" id="skip-next" disabled>⏩</button>

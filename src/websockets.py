@@ -8,6 +8,7 @@ from logging import Logger
 from typing import Any, AsyncGenerator, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosed
 
 from .common import DEFAULT_INTERVAL, BreezeBaseClass
 
@@ -86,7 +87,11 @@ class WebSocketManager(BreezeBaseClass):
 
     async def broadcast(self, message: dict, logger: Logger | None = None) -> None:
         for connection in self.active_connections:
-            await connection.send_text(json.dumps(message))
+            try:
+                await connection.send_text(json.dumps(message))
+            except (WebSocketDisconnect, ConnectionClosed):
+                self.logger.warn(f"{connection} seems to have disconnected!")
+                self.disconnect(connection)
 
     async def recieve_data(self, websocket: WebSocket) -> AsyncGenerator[Any, None]:
         async with self.keep_connected(websocket):
@@ -101,5 +106,5 @@ class WebSocketManager(BreezeBaseClass):
         await self.connect(websocket)
         try:
             yield
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, ConnectionClosed):
             self.disconnect(websocket)

@@ -113,7 +113,8 @@ class PlaybackManager(BreezeBaseClass):
         self.vlc_instance = vlc.Instance("--no-xlib")
 
         self.player = self.vlc_instance.media_player_new()
-        self._previous_volume_ = self.player.audio_get_volume()
+        self._previous_volume_ = self.volume
+        self._volume_ = 0
         self.set_volume(100)
 
         events = self.player.event_manager()
@@ -214,6 +215,9 @@ class PlaybackManager(BreezeBaseClass):
             info["chapters"] = self.current_song.chapters != []
             if chapter := self.current_chapter:
                 info["current_chapter"] = chapter.to_dict  # type:ignore [assignment]
+        if (vol := self.volume) and vol != self._volume_:
+            info["volume"] = vol
+            self._volume_ = vol
         return info
 
     def get_queue_update(self) -> Updates:
@@ -239,11 +243,11 @@ class PlaybackManager(BreezeBaseClass):
     def _load_(self, video: Video) -> None:
         if audio_url := self.run_with_timeout(video.audio_url):
             self.log(self.logger.info, f"Loading {video} into memory: ", audio_url)
-            media = self.vlc_instance.media_new(audio_url)
-            self.player.set_media(media)
-            self.log(self.logger.info, f"Loaded {video} into player")
-        else:
-            self.skip_queue()
+            if media := self.run_with_timeout(self.vlc_instance.media_new, audio_url):
+                self.run_with_timeout(self.player.set_media, media)
+                self.log(self.logger.info, f"Loaded {video} into player")
+                return None
+        self.skip_queue()
 
     def set_song(self, video: Video) -> None:
         self._load_(video)
@@ -251,6 +255,10 @@ class PlaybackManager(BreezeBaseClass):
 
     def set_song_url(self, url: str) -> None:
         self.set_song(Video(url))
+
+    @property
+    def volume(self) -> int:
+        return self.player.audio_get_volume()
 
     def set_volume(self, volume: int) -> None:
         self.player.audio_set_volume(max(0, min(100, volume)))
@@ -383,7 +391,7 @@ class PlaybackManager(BreezeBaseClass):
         self.log(self.logger.info, "Playing next song from queue.")
         if self.queue.qsize() == 0:
             self.log(self.logger.error, "No song in queue!")
-            self._stop_()
+            self.run_with_timeout(self._stop_, timeout=2, raise_on_error=False)
             self.current_song = None
             return
         video = self.queue.get()
