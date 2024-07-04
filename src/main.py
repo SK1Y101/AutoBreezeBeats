@@ -24,9 +24,6 @@ from .weather import ToggleAction, WeatherManager
 from .websockets import WebSocketManager
 
 application_details = {"title": "AutoBreezeBeats", "version": "0.4"}
-initial_settings = {
-    "volume": 50
-}
 
 with open("src/logging_conf.yaml", "r") as f:
     logging_config = yaml.safe_load(f)
@@ -58,8 +55,6 @@ async def startup() -> None:
     await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
     await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
 
-    playback_manager.set_volume(initial_settings.get("volume", 50))
-
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
@@ -74,7 +69,7 @@ async def index(request: Request) -> HTMLResponse:
             "request": request,
             "application": application_details,
             "host": get_device_details(),
-            "initial_settings": initial_settings,
+            "initial_settings": ws_manager.config,
         },
     )
 
@@ -165,6 +160,7 @@ if __name__ == "__main__":
     finally:
         log.info(f"Setting volume to {playback_manager._previous_volume_}")
         playback_manager.set_volume(playback_manager._previous_volume_)
+        ws_manager._save_configuration_()
         tasks = asyncio.all_tasks()
         for task in tasks:
             log.info(f"Cancelling {task.get_name()}")

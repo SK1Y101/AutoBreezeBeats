@@ -10,7 +10,7 @@ from typing import Any, Generator
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from .common import DEFAULT_INTERVAL, BreezeBaseClass, load_data, save_data
+from .common import DEFAULT_INTERVAL, BreezeBaseClass
 from .websockets import Notifier, Updates
 
 
@@ -82,8 +82,6 @@ class Device:
 class DeviceManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
         super().__init__("devices", parent_logger)
-        self.filename = "connected_devices.yaml"
-
         self.devices: list[Device] = []
         self.load_devices()
         self.sync_devices()
@@ -267,19 +265,15 @@ class DeviceManager(BreezeBaseClass):
 
     def save_devices(self) -> None:
         self.log(self.logger.info, "Saving device data")
-
-        data = {}
-        data["devices"] = {device.address: device.name for device in self.devices}
-
-        save_data(self.filename, data)
+        self.write_config(
+            "devices", {device.address: device.name for device in self.devices}
+        )
         self.log(self.logger.info, "Saving complete")
 
     def load_devices(self) -> None:
         self.log(self.logger.info, "Loading device data")
 
-        if data := load_data(self.filename):
-            devices = data["devices"]
-
+        if devices := self.read_config("devices"):
             self.devices = [
                 Device(address=noramlise_address(address), name=name, connected=False)
                 for address, name in devices.items()

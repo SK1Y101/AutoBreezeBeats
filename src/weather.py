@@ -240,7 +240,7 @@ class WeatherManager(BreezeBaseClass):
             return None
 
     def get_config(self) -> None:
-        conf = load_data("config.yaml")["weather"]
+        conf = self.my_config
         self.api_key = conf["api_key"]
 
         # default to london GB

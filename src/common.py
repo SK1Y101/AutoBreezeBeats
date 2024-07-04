@@ -1,7 +1,8 @@
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import TimeoutError
 from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
+from multiprocessing import Process, Queue
 from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Any, Callable, Iterable
 
@@ -15,47 +16,140 @@ def current_time() -> datetime:
     return datetime.now(UTC)
 
 
-class BreezeBaseClass:
-    def __init__(self, name: str, parent_logger: Logger | None = None) -> None:
+class TimeoutException(Exception):
+    pass
+
+
+class ConfigurationManager:
+    config_path = "config.yaml"
+    _config_: dict[str, dict[str, Any]] = {}
+
+    def __init__(self, name: str) -> None:
         self.name = name
+        self._load_configuration_()
+
+    @property
+    def name(self) -> str:
+        if self._name_:
+            return self._name_
+        return self.__class__.__name__.lower().replace("manager", "")
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name_ = value
+
+    def _load_configuration_(self) -> None:
+        self._config_ = load_data(self.config_path, True)
+
+    def _save_configuration_(self) -> None:
+        save_data(self.config_path, self._config_)
+
+    # the whole configuration
+    def _get_configuration_section_(self, section: str) -> dict[str, Any]:
+        return self._config_.get(section, {})
+
+    def _set_configuration_section_(
+        self, section: str, value: dict[str, Any] = {}
+    ) -> None:
+        self._config_[section] = value
+        self._save_configuration_()
+
+    # configuration from a section
+    def _get_configuration_value_(self, section: str, key: str, default=None) -> Any:
+        return self._get_configuration_section_(section).get(key, default)
+
+    def _set_configuration_value_(self, section: str, key: str, value: Any) -> None:
+        conf = self._get_configuration_section_(section)
+        conf[key] = value
+        self._set_configuration_section_(section, conf)
+
+    # configuration for my class
+    def _get_config_(self) -> dict[str, Any]:
+        return self._get_configuration_section_(self.name)
+
+    def _get_config_value_(self, key: str, default: Any) -> Any:
+        return self._get_configuration_value_(self.name, key, default)
+
+    def _set_config_(self, value: dict[str, Any] = {}) -> None:
+        return self._set_configuration_section_(self.name, value)
+
+    def _set_config_value_(self, key: str, value: Any) -> None:
+        return self._set_configuration_value_(self.name, key, value)
+
+    # easy to access
+    def read_config(self, key: str, default=None) -> Any:
+        return self._get_config_value_(key, default)
+
+    def write_config(self, key: str, value=Any) -> None:
+        return self._set_config_value_(key, value)
+
+    @property
+    def my_config(self) -> dict[str, Any]:
+        return self._get_config_()
+
+    @property
+    def config(self) -> dict[str, dict[str, Any]]:
+        if not self._config_:
+            self._load_configuration_()
+        return self._config_
+
+
+class BreezeBaseClass(ConfigurationManager):
+
+    def __init__(self, name: str, parent_logger: Logger | None = None) -> None:
+        super().__init__(name)
         self.logger = (
             parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
         )
+
+    def _target(self, func: Callable, queue: Queue, *args: Any, **kwargs) -> None:
+        try:
+            result = func(*args, **kwargs)
+            queue.put(result)
+        except Exception as e:
+            queue.put(e)
 
     def run_with_timeout(
         self,
         func: Callable,
         *args: Any,
         timeout: float = 10,
-        raise_on_error: bool = True,
         **kwargs,
     ) -> Any | None:
+        queue = Queue()
+        process = Process(target=self._target, args=(func, queue, *args), kwargs=kwargs)
+        process.start()
+        process.join(timeout)
 
-        @retry(tries=3, delay=1)
-        def _retry_() -> Any:
-            with ThreadPoolExecutor() as executor:
-                future = executor.submit(func, *args, **kwargs)
-                try:
-                    result = future.result(timeout=timeout)
-                    return result
-                except TimeoutError:
-                    self.logger.error(
-                        f"Timeout: {func.__name__} timed out after {timeout} seconds"
-                    )
-                    raise
-                except Exception as e:
-                    self.logger.error(
-                        f"Error: {func.__name__} raised an exception: {e}"
-                    )
-                    if raise_on_error:
-                        raise
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            msg = f"Timeout: {func.__name__} timed out after {timeout} seconds"
+            self.logger.error(msg)
+            raise TimeoutException(msg)
 
-        try:
-            return _retry_()
-        except TimeoutError:
-            # We don't allow timeout errors to halt execution
-            pass
+        if not queue.empty():
+            result = queue.get_nowait()
+            if isinstance(result, Exception):
+                self.logger.error(f"Error: {func.__name__} raised an exception: {e}")
+                raise result
+            return result
+
         return None
+
+    @retry(tries=3, delay=1, exceptions=(TimeoutException,))
+    def retry_with_timeout(
+        self,
+        func: Callable,
+        *args: Any,
+        timeout: float = 10,
+        **kwargs,
+    ) -> Any | None:
+        try:
+            return self.run_with_timeout(func, *args, timeout=timeout, **kwargs)
+        except Exception as e:
+            self.logger.warning(e)
+            return None
 
     @property
     def logger(self) -> Logger:

@@ -203,7 +203,4 @@ export function initialisePlayback(socket) {
         updateVolumeUI();
         debounce(sendVolume, 100)();
     });
-
-    updateVolumeUI();
-    sendVolume();
 };
