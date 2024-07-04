@@ -8,6 +8,7 @@ from logging import Logger
 from typing import Any, AsyncGenerator, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
+
 from websockets.exceptions import ConnectionClosed
 
 from .common import DEFAULT_INTERVAL, BreezeBaseClass
