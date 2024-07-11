@@ -200,10 +200,7 @@ class PlaybackManager(BreezeBaseClass):
             "volume": self.volume,
             # booleans
             "playing": self.is_playing,
-            "chapters": None,
             # videos
-            "current": None,
-            "current_chapter": None,
             "queue": self.queue_dict,
         }
         if song := self.current_song:

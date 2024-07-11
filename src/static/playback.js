@@ -92,8 +92,9 @@ export function initialisePlayback(socket) {
         };
 
         if (message.volume !== undefined) {
-            volumeSlider.value = message.volume;
-            volumeValue.textContent = message.volume;
+            const volume = parseInt(message.volume);
+            volumeSlider.value = volume;
+            volumeValue.innerText = volume;
         }
     };
 
