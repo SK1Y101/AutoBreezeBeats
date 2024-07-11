@@ -1,5 +1,4 @@
 import os
-from concurrent.futures import TimeoutError
 from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from multiprocessing import Process, Queue
@@ -105,6 +104,7 @@ class BreezeBaseClass(ConfigurationManager):
     def _target(self, func: Callable, queue: Queue, *args: Any, **kwargs) -> None:
         try:
             result = func(*args, **kwargs)
+            self.logger.debug(f"timeout result: {result}")
             queue.put(result)
         except Exception as e:
             queue.put(e)
@@ -115,8 +115,8 @@ class BreezeBaseClass(ConfigurationManager):
         *args: Any,
         timeout: float = 10,
         **kwargs,
-    ) -> Any | None:
-        queue = Queue()
+    ) -> Any:
+        queue: Queue = Queue()
         process = Process(target=self._target, args=(func, queue, *args), kwargs=kwargs)
         process.start()
         process.join(timeout)
@@ -128,14 +128,14 @@ class BreezeBaseClass(ConfigurationManager):
             self.logger.error(msg)
             raise TimeoutException(msg)
 
-        if not queue.empty():
-            result = queue.get_nowait()
-            if isinstance(result, Exception):
-                self.logger.error(f"Error: {func.__name__} raised an exception: {e}")
-                raise result
-            return result
+        if queue.empty():
+            raise ValueError("Nothing placed in queue")
 
-        return None
+        result = queue.get_nowait()
+        if isinstance(result, Exception):
+            self.logger.error(f"Error: {func.__name__} raised an exception: {result}")
+            raise result
+        return result or True
 
     @retry(tries=3, delay=1, exceptions=(TimeoutException,))
     def retry_with_timeout(
@@ -147,9 +147,8 @@ class BreezeBaseClass(ConfigurationManager):
     ) -> Any | None:
         try:
             return self.run_with_timeout(func, *args, timeout=timeout, **kwargs)
-        except Exception as e:
-            self.logger.warning(e)
-            return None
+        except Exception:
+            raise
 
     @property
     def logger(self) -> Logger:

@@ -192,7 +192,7 @@ class WeatherManager(BreezeBaseClass):
                     start_time = current_time()
 
                 # Reset the timer if a song is in the queue
-                if self.playback_manager.queue.qsize() >= self.auto_queue_length:
+                if len(self.playback_manager.queue) >= self.auto_queue_length:
                     start_time = current_time()
                 else:
                     msg = (
@@ -344,7 +344,7 @@ class WeatherManager(BreezeBaseClass):
             if weather_type.value not in weathers:
                 weathers.append(weather_type.value)
 
-        alread_queued = [video.url for video in self.playback_manager._whole_queue_]
+        alread_queued = [video.url for video in self.playback_manager.queue]
         for url, song in self.song_mapping.items():
             # don't queue songs that already exist
             if url in alread_queued:
@@ -394,8 +394,9 @@ class WeatherManager(BreezeBaseClass):
             song_listing, [1 + max(rank_listing) - weight for weight in rank_listing]
         )
 
-        if self.playback_manager.current_song is None:
-            self.playback_manager.set_song_url(chosen_song_url)
+        has_song = self.playback_manager.has_song
+        self.logger.info(f"Adding song {chosen_song_url} to queue")
+        self.playback_manager.add_to_queue(chosen_song_url)
+        if not has_song:
+            self.playback_manager.load_from_queue()
             self.playback_manager.play()
-        else:
-            self.playback_manager.queue_video_url(chosen_song_url)

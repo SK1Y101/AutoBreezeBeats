@@ -46,6 +46,22 @@ Simply navigate to [localhost:8000](http://localhost:8000/), and you'll be met w
 
 ## Developing
 
+### Out of control
+
+If the script is running out of control, and ctrl+c is not working to halt it, you can find the process ids with 
+
+```bash
+ps aux | grep bluetooth-web-player
+```
+
+and run 
+
+```bash
+kill -9 $id
+```
+
+to halt it
+
 ### Code standards
 
 A linter and formatter already exists for this project:

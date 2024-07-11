@@ -51,7 +51,7 @@ weather_manager = WeatherManager(log, ws_manager.notifier, playback_manager)
 @app.on_event("startup")
 async def startup() -> None:
     await device_manager.start(scanning_interval=timedelta(seconds=1))
-    await playback_manager.start(skipping_interval=timedelta(seconds=0.25))
+    await playback_manager.start(chapter_interval=timedelta(seconds=0.25))
     await weather_manager.start(fetch_weather_interval=timedelta(minutes=2))
     await ws_manager.start(websocket_interval=timedelta(seconds=0.5))
 
@@ -116,7 +116,7 @@ async def bluetooth_sink(action: SinkAction):
 @app.post("/video")
 async def load_video(url: str = Form(...)):
     log.info(f"Request to add {url} recieved")
-    video = playback_manager.queue_video_url(url)
+    video = playback_manager.add_to_queue(url)
     return video.to_dict
 
 
@@ -138,14 +138,14 @@ async def websocket_endpoint(websocket: WebSocket):
             case "pause":
                 playback_manager.pause()
             case "next_chapter":
-                playback_manager.skip_next()
+                playback_manager.skip_next_chapter()
             case "prev_chapter":
-                playback_manager.skip_prev()
+                playback_manager.skip_last_chapter()
             case "next_video":
                 playback_manager.skip_queue()
             case _:
                 if data.startswith("volume:"):
-                    playback_manager.set_volume(int(data.split(":")[1]))
+                    playback_manager.volume = int(data.split(":")[1])
                 else:
                     ws_manager.logger.warn(f"Unknown data {data}")
 
@@ -159,7 +159,7 @@ if __name__ == "__main__":
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
         log.info(f"Setting volume to {playback_manager._previous_volume_}")
-        playback_manager.set_volume(playback_manager._previous_volume_)
+        playback_manager.volume = playback_manager._previous_volume_
         ws_manager._save_configuration_()
         tasks = asyncio.all_tasks()
         for task in tasks:
