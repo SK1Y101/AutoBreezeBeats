@@ -15,6 +15,8 @@ from .common import DEFAULT_INTERVAL, BreezeBaseClass, current_time, load_data
 from .playback import PlaybackManager
 from .websockets import Notifier, Updates
 
+song_map = dict[str, dict[str, list[str]]]
+
 
 class ToggleAction(BaseModel):
     toggle: bool = False
@@ -117,17 +119,14 @@ class WeatherManager(BreezeBaseClass):
         self.weather_task: None | asyncio.Task = None
         self.autoplay_task: None | asyncio.Task = None
 
-        self.autoplaying: bool = True
-        self.shuffle_sample_size = 5
-        self.auto_queue_length = 4
+        self.autoplaying: bool = self.read_class_config("playback", "autoplay", True)
 
         self.playback_manager = playback_manager
-        self.playback_timeout = 10
 
         self.weather: Weather | None = None
-        self.song_mapping: dict[str, dict[str, list[str]]] = {}
+        self.song_mapping: song_map = {}
 
-        self.song_store = "stored_songs.yaml"
+        self.song_store = "songs/"
 
         self.get_config()
 
@@ -149,6 +148,13 @@ class WeatherManager(BreezeBaseClass):
             f"Weather Initialised at ({self.lat}, {self.lon})"
             f" songs: {len(self.song_mapping)}",
         )
+
+    def stop(self) -> None:
+        self.write_class_config(
+            "playback", "shuffle_sample_size", self.shuffle_sample_size
+        )
+        self.write_class_config("playback", "auto_queue_length", self.auto_queue_length)
+        self.write_class_config("playback", "playback_timeout", self.playback_timeout)
 
     async def start(
         self,
@@ -261,24 +267,40 @@ class WeatherManager(BreezeBaseClass):
 
         self.get_songs()
 
+    @property
+    def shuffle_sample_size(self) -> int:
+        return self.read_class_config("playback", "shuffle_sample_size", 5)
+
+    @property
+    def auto_queue_length(self) -> int:
+        return self.read_class_config("playback", "auto_queue_length", 4)
+
+    @property
+    def playback_timeout(self) -> int:
+        return self.read_class_config("playback", "playback_timeout", 10)
+
     def get_songs(self, quiet: bool = False) -> None:
-        if song_config := load_data(self.song_store, quiet=True):
-            songs = song_config["songs"]
-            self.song_mapping = {
-                song["song_url"]: {
-                    "name": song["name"],
-                    "weather": song["weather"],
-                    "time": song["time"],
+        import os
+
+        song_mapping: song_map = {}
+        for path, _, files in os.walk(self.song_store):
+            for file_name in files:
+                songs = load_data(f"{path}{file_name}", quiet=True)["songs"]
+                song_mapping |= {
+                    song["song_url"]: {
+                        "name": song["name"],
+                        "weather": song["weather"],
+                        "time": song["time"],
+                    }
+                    for song in songs
+                    if song.get("song_url", None)
                 }
-                for song in songs
-                if song.get("song_url", None)
-            }
-            if not quiet:
-                self.log(
-                    self.logger.debug, "Loaded songs from store:", self.song_mapping
-                )
-        else:
+                if not quiet:
+                    self.log(self.logger.debug, f"Loaded songs from {file_name}")
+        if not song_mapping:
             self.log(self.logger.debug, f"No songs defined in {self.song_store}!")
+            return
+        self.song_mapping = song_mapping
 
     def fetch_weather_from_api(self) -> None:
         if weather_dict := self.fetch_from_api(
@@ -386,6 +408,10 @@ class WeatherManager(BreezeBaseClass):
                     msg += [weathers[lower]]
                 self.logger.debug(" ".join(msg))
                 skip += 10
+
+        if len(song_listing) == 0:
+            self.logger.warning("We do not have enough songs to shuffle!")
+            return
 
         self.log(
             self.logger.debug, f"Songs to shuffle for {weather.summary}", *song_listing

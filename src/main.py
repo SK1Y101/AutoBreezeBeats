@@ -69,14 +69,8 @@ async def index(request: Request) -> HTMLResponse:
             "request": request,
             "application": application_details,
             "host": get_device_details(),
-            "initial_settings": ws_manager.config,
         },
     )
-
-
-@app.get("/devices")
-async def list_devices() -> list[dict[str, str | bool]]:
-    return device_manager.list_devices
 
 
 @app.post("/devices/connect")
@@ -127,6 +121,7 @@ async def toggle_autoplay(data: ToggleAction):
         weather_manager.autoplaying = False
     else:
         weather_manager.autoplaying = True
+    playback_manager.write_config("autoplay", weather_manager.autoplaying)
 
 
 @app.websocket("/ws")
@@ -158,8 +153,11 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received, shutting down gracefully")
     finally:
-        log.info(f"Setting volume to {playback_manager._previous_volume_}")
-        playback_manager.volume = playback_manager._previous_volume_
+        device_manager.stop()
+        playback_manager.stop()
+        weather_manager.stop()
+        ws_manager.stop()
+
         ws_manager._save_configuration_()
         tasks = asyncio.all_tasks()
         for task in tasks:

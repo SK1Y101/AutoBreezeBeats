@@ -38,6 +38,7 @@ class Notifier(BreezeBaseClass):
 class WebSocketManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger = None) -> None:
         super().__init__("websocket", parent_logger)
+        self.debug_level = 0
 
         self.notifier = Notifier()
         self.active_connections: list[WebSocket] = []
@@ -59,10 +60,21 @@ class WebSocketManager(BreezeBaseClass):
             self.logger.info,
             f"Starting update loop with interval {websocket_interval}s",
         )
+        old_updates: list[Updates] = []
         while True:
             try:
                 updates = self.notifier.get_updates()
-                self.log(self.logger.debug, "Sending updates:", *updates)
+                if self.debug_level == 0:
+                    self.log_changed(
+                        self.logger.debug,
+                        "updates",
+                        updates,
+                        old_updates,
+                        log_old=False,
+                    )
+                else:
+                    self.log(self.logger.debug, "Sending updates:", *updates)
+                old_updates = updates
                 for update in updates:
                     await self.broadcast(update, self.logger.getChild("update_loop"))
                 self.log(

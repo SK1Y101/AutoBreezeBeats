@@ -1,4 +1,5 @@
 fastapi
+inflection
 python-vlc
 retry
 rich
