@@ -18,7 +18,7 @@
     <section class="main-content">
       <div class="video-section">
         <div>
-          <h2 id="current-title"></h2>
+          <h2 id="current-title">Now playing: Nothing (Queue a video to start)</h2>
           <div class="thumbnail-container">
             <img id="current-thumbnail" src="" style="height:720px; width:1280px; background-color: darkgrey;">
             <div id="current-chapter" class="top-left"></div>
@@ -30,11 +30,11 @@
                 <div id="elapsed-time">0:00:00</div> / <div id="total-time">0:00:00</div>
               </span>
               <!-- ▶️⏩⏭️⏪⏸️ -->
-              <span id="volumeValue">{{ initial_settings.volume }}</span>
-              <input type="range" id="volumeSlider" min="0" max="100" value="{{ initial_settings.volume }}">
-              <button class="control-button" id="skip-previous" disabled>⏪</button>
+              <span id="volumeValue"></span>
+              <input type="range" id="volumeSlider" min="0" max="100" value="50">
+              <button class="control-button" id="skip-previous" disabled="">⏪</button>
               <button class="control-button center-button" id="play-pause">▶</button>
-              <button class="control-button" id="skip-next" disabled>⏩</button>
+              <button class="control-button" id="skip-next" disabled="">⏩</button>
               <button class="control-button" id="skip-full">⏭️</button>
             </div>
           </div>

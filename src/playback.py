@@ -15,13 +15,14 @@ from .websockets import Notifier, Updates
 class Chapter:
     title: str
     time: int
+    end: int
 
     @property
     def to_dict(self) -> dict[str, str | int]:
         return {"title": self.title, "time": self.time}
 
     def __str__(self) -> str:
-        return f"<< Chapter {self.time} at {self.time} >>"
+        return f"<< Chapter {self.title} at {self.time} >>"
 
 
 class Video:
@@ -70,8 +71,9 @@ class Video:
             for chapter in chapters:
                 title = chapter.get("title")
                 start = chapter.get("start_time")
+                end = chapter.get("end_time")
                 if start is not None and title:
-                    found.append(Chapter(title=title, time=start))
+                    found.append(Chapter(title=title, time=start, end=end))
         return found
 
     def __str__(self) -> str:
@@ -96,14 +98,6 @@ class Video:
     def has_chapters(self) -> bool:
         return self.chapters != []
 
-    @property
-    def next_chapter(self) -> int:
-        return max(len(self.chapters), self.current_chapter + 1)
-
-    @property
-    def last_chapter(self) -> int:
-        return min(0, self.current_chapter - 1)
-
 
 class PlaybackManager(BreezeBaseClass):
     def __init__(self, parent_logger: None | Logger, notifier: Notifier) -> None:
@@ -115,6 +109,7 @@ class PlaybackManager(BreezeBaseClass):
 
         self._initialise_vlc_()
         self._previous_volume_ = self.volume
+        self._post_init_vlc_()
 
         notifier.register_callback(self.get_status)
 
@@ -127,26 +122,36 @@ class PlaybackManager(BreezeBaseClass):
         )
         events.event_attach(vlc.EventType.MediaPlayerEndReached, self._vlc_ended_song_)
 
-        self.volume = self.read_config("volume", 100)
+    def _post_init_vlc_(self) -> None:
+        self.player.audio_set_volume(self.read_config("volume", 100))
 
     def _log_vlc_error_(self, event: vlc.Event) -> None:
-        self.log(self.logger.getChild("vlc").error, "VLC experienced an error")
+        self.log(
+            self.logger.getChild("vlc").error, "VLC experienced an error, skipping"
+        )
+        self._vlc_ended_song_(event)
 
     def _vlc_ended_song_(self, event: vlc.Event) -> None:
-        self.log(
-            self.logger.getChild("vlc").debug, "VLC reached song completion"
-        )
+        self.log(self.logger.getChild("vlc").debug, "VLC reached song completion")
         # It's easier to just create a new VLC instance than handle the error
         self._initialise_vlc_()
+        self._post_init_vlc_()
         self.skip_queue()
         self.play()
 
     def _load_video_(self, video: Video) -> None:
+        self.write_config("volume", self.volume)
         self.player.stop()
         media = self.vlc_instance.media_new(video.audio_url())
         self.player.set_media(media)
+        self.volume = self.read_config("volume", 100)
 
     # callbacks and updates
+    def stop(self) -> None:
+        self.write_config("volume", self.volume)
+        self.volume = self._previous_volume_
+        self.player.stop()
+
     async def start(self, chapter_interval: timedelta = timedelta(seconds=1)) -> None:
         await self.start_chapter_loop(chapter_interval.total_seconds())
 
@@ -167,24 +172,28 @@ class PlaybackManager(BreezeBaseClass):
         )
         try:
             while True:
-                if self.has_song:
-                    song = self.current_song
-                    if song and song.has_chapters:
-                        chapters = song.chapters
-                        current = song.current_chapter
+                if (song := self.current_song) and song.has_chapters:
+                    chapters = song.chapters
+                    cchapter = song.current_chapter
+                    current = chapters[cchapter]
+                    time = self.elapsed
 
-                        if chapters[current].time < self.elapsed:
-                            for idx, c in enumerate(chapters[current:]):
-                                if c.time > self.elapsed:
-                                    song.current_chapter = idx - 1
-                            else:
-                                song.current_chapter = len(song.chapters)
+                    if time >= current.end:
+                        for idx, c in enumerate(chapters[cchapter:]):
+                            if c.end > time:
+                                cchapter = song.current_chapter + idx
+                                break
                         else:
-                            for idx, c in enumerate(chapters[:current][::-1]):
-                                if c.time < self.elapsed:
-                                    song.current_chapter = idx
-                            else:
-                                song.current_chapter = 0
+                            cchapter = len(chapters)
+                    elif time < current.time:
+                        for idx, c in enumerate(chapters[cchapter::-1]):
+                            if c.time < time:
+                                cchapter = song.current_chapter - idx
+                                break
+                        else:
+                            cchapter = 0
+
+                    self.current_song.current_chapter = cchapter
 
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
@@ -197,23 +206,25 @@ class PlaybackManager(BreezeBaseClass):
             #  values
             "elapsed": self.elapsed,
             "duration": self.duration,
-            "volume": self.volume,
             # booleans
             "playing": self.is_playing,
             # videos
             "queue": self.queue_dict,
+            "chapter": False,
+            "current": False,
         }
+        if self.is_playing:
+            info["volume"] = self.volume
         if song := self.current_song:
-            info["chapters"] = song.has_chapters
             info["current"] = song.chapterless_dict
             if song.has_chapters:
-                info["current_chapter"] = song.chapters[song.current_chapter].to_dict
+                info["chapter"] = song.chapters[song.current_chapter].to_dict
         return info
 
     # Queue interactions
     @property
     def is_playing(self) -> bool:
-        return self.has_song and self.player.is_playing()
+        return bool(self.has_song and self.player.is_playing())
 
     @property
     def has_song(self) -> bool:
@@ -236,11 +247,14 @@ class PlaybackManager(BreezeBaseClass):
         return [video.chapterless_dict for video in self.queue[1:]]
 
     def load_from_queue(self) -> None:
-        self._load_video_(self.queue[0])
+        if self.queue:
+            self._load_video_(self.queue[0])
 
     def add_to_queue(self, url: str) -> Video:
         video = Video(url)
         self.queue.append(video)
+        if not self.player.get_media():
+            self.load_from_queue()
         return video
 
     # playback interaction
@@ -250,7 +264,9 @@ class PlaybackManager(BreezeBaseClass):
 
     @volume.setter
     def volume(self, vol: int) -> None:
-        self.player.audio_set_volume(min(100, max(0, vol)))
+        _vol_ = min(100, max(0, vol))
+        self.logger.debug(f"setting volume to {_vol_}")
+        self.player.audio_set_volume(_vol_)
 
     def play(self) -> None:
         self.player.play()
@@ -261,13 +277,13 @@ class PlaybackManager(BreezeBaseClass):
     @property
     def elapsed(self) -> float:
         if self.has_song:
-            return self.player.get_time() / 1000
+            return max(0, self.player.get_time() / 1000)
         return 0.0
 
     @elapsed.setter
     def elapsed(self, seconds: float) -> None:
         if self.has_song:
-            self.player.set_time(seconds * 1000)
+            self.player.set_time(int(seconds * 1000))
 
     @property
     def duration(self) -> float:
@@ -279,7 +295,7 @@ class PlaybackManager(BreezeBaseClass):
         if song := self.current_song:
             if song.has_chapters:
                 this_chapter = song.current_chapter
-                next_chapter = song.next_chapter
+                next_chapter = min(len(song.chapters) - 1, this_chapter + 1)
 
                 if this_chapter == next_chapter:
                     self.skip_queue()
@@ -290,17 +306,14 @@ class PlaybackManager(BreezeBaseClass):
         if song := self.current_song:
             if song.has_chapters:
                 this_chapter = song.current_chapter
-                last_chapter = song.last_chapter
+                last_chapter = max(0, this_chapter - 1)
 
-                if this_chapter == last_chapter:
-                    # skip back if we're close to the start of the current
-                    if self.elapsed + 2 > song.chapters[this_chapter].time:
-                        self.elapsed = song.chapters[last_chapter].time
-                    # otherwise skip to the strt of the current
-                    else:
-                        self.elapsed = song.chapters[this_chapter].time
-                else:
+                # skip back if we're close to the start of the current
+                if song.chapters[this_chapter].time + 5 > self.elapsed:
                     self.elapsed = song.chapters[last_chapter].time
+                # otherwise skip to the start of the current
+                else:
+                    self.elapsed = song.chapters[this_chapter].time
 
     def skip_queue(self) -> None:
         playing = self.is_playing

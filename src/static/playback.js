@@ -75,19 +75,15 @@ export function initialisePlayback(socket) {
             playPauseButton.textContent = isPlaying ? "⏸️" : "▶";
         };
 
-        if (message.chapters !== undefined) {
-            chapterEnable = message.chapters;
-            setDisabled(skipPreviousButton, chapterEnable);
-            setDisabled(skipNextButton, chapterEnable);
-        };
-
-        if (message.current_chapter !== undefined) {
-            const chapter = message.current_chapter;
-            if (chapter === false) {
+        if (message.chapter !== undefined) {
+            if (message.chapter !== false) {
+                currentChapter.textContent = message.chapter.title;
+                setDisabled(skipPreviousButton, true);
+                setDisabled(skipNextButton, true);
+            } else {
                 currentChapter.textContent = "";
-            }
-            else {
-                currentChapter.textContent = chapter.title;
+                setDisabled(skipPreviousButton, false);
+                setDisabled(skipNextButton, false);
             };
         };
 

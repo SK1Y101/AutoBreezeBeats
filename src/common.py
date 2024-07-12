@@ -6,6 +6,7 @@ from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Any, Callable, Iterable
 
 import yaml
+from inflection import underscore
 from retry import retry
 
 DEFAULT_INTERVAL = timedelta(seconds=1)
@@ -13,6 +14,10 @@ DEFAULT_INTERVAL = timedelta(seconds=1)
 
 def current_time() -> datetime:
     return datetime.now(UTC)
+
+
+def _to_snake_(string: str) -> str:
+    return underscore(string)
 
 
 class TimeoutException(Exception):
@@ -38,7 +43,15 @@ class ConfigurationManager:
         self._name_ = value
 
     def _load_configuration_(self) -> None:
-        self._config_ = load_data(self.config_path, True)
+        def fix_keys(subdict: dict[str, Any]) -> dict[str, Any]:
+            new = {}
+            for k, v in subdict.items():
+                new[_to_snake_(k)] = fix_keys(v) if isinstance(v, dict) else v
+            return new
+
+        cfg = fix_keys(load_data(self.config_path, True))
+        self._config_ = cfg
+        self._save_configuration_()
 
     def _save_configuration_(self) -> None:
         save_data(self.config_path, self._config_)
@@ -55,11 +68,11 @@ class ConfigurationManager:
 
     # configuration from a section
     def _get_configuration_value_(self, section: str, key: str, default=None) -> Any:
-        return self._get_configuration_section_(section).get(key, default)
+        return self._get_configuration_section_(section).get(_to_snake_(key), default)
 
     def _set_configuration_value_(self, section: str, key: str, value: Any) -> None:
         conf = self._get_configuration_section_(section)
-        conf[key] = value
+        conf[_to_snake_(key)] = value
         self._set_configuration_section_(section, conf)
 
     # configuration for my class
@@ -82,6 +95,12 @@ class ConfigurationManager:
     def write_config(self, key: str, value=Any) -> None:
         return self._set_config_value_(key, value)
 
+    def read_class_config(self, cls: str, key: str, default=None) -> Any:
+        return self._get_configuration_value_(cls, key, default)
+
+    def write_class_config(self, cls: str, key: str, value=Any) -> None:
+        return self._set_configuration_value_(cls, key, value)
+
     @property
     def my_config(self) -> dict[str, Any]:
         return self._get_config_()
@@ -100,6 +119,12 @@ class BreezeBaseClass(ConfigurationManager):
         self.logger = (
             parent_logger.getChild(self.name) if parent_logger else getLogger(self.name)
         )
+
+    async def start(self, interval: timedelta) -> None:
+        return
+
+    def stop(self) -> None:
+        return
 
     def _target(self, func: Callable, queue: Queue, *args: Any, **kwargs) -> None:
         try:

@@ -23,11 +23,11 @@ document.addEventListener("DOMContentLoaded", () => {
     initialiseDevices(socket);
     initialisePlayback(socket);
 
-    closeSocket = function() {
+    function closeSocket() {
         if (socket) {
             socket.close();
         };
-    }
+    };
 
     window.addEventListener("unload", closeSocket);
     window.addEventListener("beforeunload", closeSocket);
